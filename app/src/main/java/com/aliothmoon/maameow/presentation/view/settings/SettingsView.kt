@@ -426,25 +426,20 @@ private fun SettingThemeModeItem(
     selectedMode: AppSettingsManager.ThemeMode,
     onModeSelected: (AppSettingsManager.ThemeMode) -> Unit
 ) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = MaaDesignTokens.Spacing.listItemVertical),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.settings_theme_title),
-                style = MaterialTheme.typography.bodyLarge,
-                color = contentColor
-            )
-        }
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Text(
+            text = stringResource(R.string.settings_theme_title),
+            style = MaterialTheme.typography.bodyLarge,
+            color = contentColor
+        )
+        Row(modifier = Modifier.fillMaxWidth()) {
             val modes = listOf(
+                AppSettingsManager.ThemeMode.SYSTEM to stringResource(R.string.settings_theme_system),
                 AppSettingsManager.ThemeMode.WHITE to stringResource(R.string.settings_theme_white),
                 AppSettingsManager.ThemeMode.DARK to stringResource(R.string.settings_theme_dark),
                 AppSettingsManager.ThemeMode.PURE_DARK to stringResource(R.string.settings_theme_pure_dark)
@@ -452,7 +447,9 @@ private fun SettingThemeModeItem(
             modes.forEach { (mode, label) ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
                     modifier = Modifier
+                        .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
                         .selectable(
                             selected = mode == selectedMode,
@@ -464,11 +461,12 @@ private fun SettingThemeModeItem(
                         selected = mode == selectedMode,
                         onClick = null
                     )
-                    Spacer(modifier = Modifier.width(2.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = label,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = contentColor
+                        color = contentColor,
+                        maxLines = 1
                     )
                 }
             }

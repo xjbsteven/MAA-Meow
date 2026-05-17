@@ -295,31 +295,20 @@ class AppSettingsManager(private val context: Context) {
 
     // 主题模式
     enum class ThemeMode {
-        WHITE, DARK, PURE_DARK
+        SYSTEM, WHITE, DARK, PURE_DARK
     }
 
     val themeMode: StateFlow<ThemeMode> = settings
         .map {
-            val modeStr = it.themeMode
-            if (modeStr == "SYSTEM" || modeStr == "LIGHT") {
-                ThemeMode.WHITE
-            } else {
-                runCatching { ThemeMode.valueOf(modeStr) }
-                    .getOrDefault(ThemeMode.WHITE)
-            }
+            runCatching { ThemeMode.valueOf(it.themeMode) }.getOrDefault(ThemeMode.SYSTEM)
         }
         .distinctUntilChanged()
         .stateIn(
             scope, SharingStarted.Eagerly,
-            runCatching { 
-                val initialModeStr = initialSettings.themeMode
-                if (initialModeStr == "SYSTEM" || initialModeStr == "LIGHT") {
-                    ThemeMode.WHITE
-                } else {
-                    ThemeMode.valueOf(initialModeStr)
-                }
-            }
-                .getOrDefault(ThemeMode.WHITE)
+            runCatching {
+                val modeStr = if (initialSettings.themeMode == "LIGHT") "WHITE" else initialSettings.themeMode
+                ThemeMode.valueOf(modeStr)
+            }.getOrDefault(ThemeMode.SYSTEM)
         )
 
     suspend fun setThemeMode(mode: ThemeMode) {

@@ -1,6 +1,7 @@
 package com.aliothmoon.maameow.theme
 
 import androidx.compose.foundation.IndicationNodeFactory
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.interaction.InteractionSource
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -158,10 +159,11 @@ object MaaThemeAlphas {
 
 @Composable
 fun MaaMeowTheme(
-    themeMode: AppSettingsManager.ThemeMode = AppSettingsManager.ThemeMode.WHITE,
+    themeMode: AppSettingsManager.ThemeMode = AppSettingsManager.ThemeMode.SYSTEM,
     content: @Composable () -> Unit
 ) {
     val colorScheme = when (themeMode) {
+        AppSettingsManager.ThemeMode.SYSTEM -> if (isSystemInDarkTheme()) BlueDark else BlueLight
         AppSettingsManager.ThemeMode.WHITE -> BlueLight
         AppSettingsManager.ThemeMode.DARK -> BlueDark
         AppSettingsManager.ThemeMode.PURE_DARK -> BluePureDark

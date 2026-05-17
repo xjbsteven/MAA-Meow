@@ -245,6 +245,7 @@
     <string name="settings_startup_backend_title">启动模式</string>
     <string name="settings_startup_backend_desc">选择应用获取系统权限的方式</string>
     <string name="settings_theme_title">主题模式</string>
+    <string name="settings_theme_system">随系统</string>
     <string name="settings_theme_white">白色</string>
     <string name="settings_theme_dark">暗色</string>
     <string name="settings_theme_pure_dark">纯黑</string>
