@@ -126,6 +126,10 @@ object VirtualDisplayManager {
 
     private fun createVirtualDisplay(surface: Surface, cfg: DisplayConfig) {
         val flags = buildDisplayFlags()
+        val wm = ServiceManager.getWindowManager()
+        val physicalRotation = runCatching { wm.rotation }.getOrDefault(-1)
+        Ln.i("Physical display rotation: $physicalRotation")
+
         val vd = ServiceManager.getDisplayManager()
             .createNewVirtualDisplay(
                 VD_NAME,
@@ -138,15 +142,45 @@ object VirtualDisplayManager {
         virtualDisplay.set(vd)
         val vdId = vd.display.displayId
         displayId.set(vdId)
-        Ln.i("Virtual display created: id=$vdId, size=${cfg.width}x${cfg.height}, dpi=${cfg.dpi}")
+
+        val d = vd.display
+        Ln.i(
+            "VD created: id=$vdId" +
+            ", configured=${cfg.width}x${cfg.height}" +
+            ", actual=${d.width}x${d.height}" +
+            ", rotation=${d.rotation}" +
+            ", flags=0x${flags.toString(16)}"
+        )
+
+        if (d.rotation != Surface.ROTATION_0) {
+            // 所有旋转非零的情况都先尝试 freezeRotation
+            runCatching {
+                wm.freezeRotation(vdId, Surface.ROTATION_0)
+                Ln.i("freezeRotation done, post-freeze rotation=${vd.display.rotation}")
+            }.onFailure { e -> Ln.w("freezeRotation failed: ${e.message}") }
+
+            if (physicalRotation == Surface.ROTATION_0) {
+                // 物理屏处于自然方向（rotation=0）而 VD 却有旋转角，
+                // 这是横屏原生设备如AYN Odin2的典型特征：
+                // 此类设备的定制 ROM 对二级显示调 freezeRotation 无效，
+                // 额外调 setForcedDisplaySize 强制 VD 向内部 app 上报横屏尺寸。
+                Ln.w(
+                    "Landscape-native device detected (physRot=0, vdRot=${d.rotation}), " +
+                    "applying setForcedDisplaySize"
+                )
+                runCatching {
+                    wm.setForcedDisplaySize(vdId, cfg.width, cfg.height)
+                    Ln.i("setForcedDisplaySize(${cfg.width}x${cfg.height}) applied")
+                }.onFailure { e -> Ln.w("setForcedDisplaySize failed: ${e.message}") }
+            }
+        }
     }
 
     private fun buildDisplayFlags(): Int {
         var flags = (VIRTUAL_DISPLAY_FLAG_PUBLIC
                 or VIRTUAL_DISPLAY_FLAG_PRESENTATION
                 or VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
-                or VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH
-                or VIRTUAL_DISPLAY_FLAG_ROTATES_WITH_CONTENT)
+                or VIRTUAL_DISPLAY_FLAG_SUPPORTS_TOUCH)
 
         if (VD_DESTROY_CONTENT) {
             flags = flags or VIRTUAL_DISPLAY_FLAG_DESTROY_CONTENT_ON_REMOVAL
