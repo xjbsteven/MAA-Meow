@@ -272,20 +272,26 @@ class MaaCompositionService(
                 "设置显示模式失败", "DISPLAY_MODE_ERROR",
                 StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.DISPLAY_MODE)
             )
-        val displayId = service.startVirtualDisplay()
-        if (displayId == -1)
-            return failStart(
-                "启动虚拟显示失败", "VIRTUAL_DISPLAY_ERROR",
-                StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY)
-            )
         val config = when (mode) {
             RunMode.FOREGROUND -> {
+                val displayId = service.startVirtualDisplay()
+                if (displayId == -1)
+                    return failStart(
+                        "启动虚拟显示失败", "VIRTUAL_DISPLAY_ERROR",
+                        StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY)
+                    )
                 val (w, h) = Misc.getScreenSize(context)
                 buildConnectConfig(w, h, displayId)
             }
 
             RunMode.BACKGROUND -> {
                 val r = resolveAndSetResolution(service, clientType)
+                val displayId = service.startVirtualDisplay()
+                if (displayId == -1)
+                    return failStart(
+                        "启动虚拟显示失败", "VIRTUAL_DISPLAY_ERROR",
+                        StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY)
+                    )
                 buildConnectConfig(r.width, r.height, displayId)
             }
         }
