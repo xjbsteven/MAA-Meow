@@ -121,10 +121,7 @@
     <string name="maa_recruit_support_operator">编入助战干员：%1$s</string>
 
     <!-- subtask_extra_credit -->
-    <string name="maa_credit_full_only_buy_discount">博士！
-只购买折扣商品让信用点数溢出了！
-小心信用点数浪费哦！
-剩余信用点数：</string>
+    <string name="maa_credit_full_only_buy_discount">博士！\n只购买折扣商品让信用点数溢出了！\n小心信用点数浪费哦！\n剩余信用点数：</string>
 
     <!-- subtask_extra_fight -->
     <string name="maa_start_combat">开始战斗: </string>
@@ -484,11 +481,7 @@
     <string name="update_card_visit_site">前往官网</string>
     <string name="update_card_github_desc">从 GitHub 官方仓库下载资源。适合网络环境良好的用户，可直接获取最新版本。</string>
     <string name="update_card_mirror_brand">Mirror酱</string>
-    <string name="update_card_mirror_desc">是独立的第三方加速下载服务，需要付费使用，并非「MAA」收费。
-
-其运营成本由订阅收入支撑，部分收益将回馈项目开发者。欢迎订阅 CDK 享受高速下载，同时支持项目持续开发。
-
-选择 Mirror酱 作为下载源时需要填写 CDK。</string>
+    <string name="update_card_mirror_desc">是独立的第三方加速下载服务，需要付费使用，并非「MAA」收费。\n\n其运营成本由订阅收入支撑，部分收益将回馈项目开发者。欢迎订阅 CDK 享受高速下载，同时支持项目持续开发。\n\n选择 Mirror酱 作为下载源时需要填写 CDK。</string>
     <string name="update_card_about_source_cd">关于%1$s</string>
 
     <!-- update cdk input -->
@@ -611,36 +604,14 @@
     <string name="panel_autobattle_support_random">随机</string>
     <string name="panel_autobattle_add_trust">补充低信赖干员</string>
     <string name="panel_autobattle_battle_list">战斗列表</string>
-    <string name="panel_autobattle_battle_list_tip">仅支持以下模式:
-  1. 主线: 同一章节内导航
-  2. SideStory: 当前页面内导航（普通/EX/S 不能互跳）
-  3. 故事集: 当前页面内导航
-  4. 悖论模拟: 从干员列表启动
-请在对应界面启动，不支持跨章节导航
-
-当 ｢战斗列表｣ 启用后, 选择单个作业时会自动添加到 ｢战斗列表｣</string>
+    <string name="panel_autobattle_battle_list_tip">仅支持以下模式:\n  1. 主线: 同一章节内导航\n  2. SideStory: 当前页面内导航（普通/EX/S 不能互跳）\n  3. 故事集: 当前页面内导航\n  4. 悖论模拟: 从干员列表启动\n请在对应界面启动，不支持跨章节导航\n\n当 ｢战斗列表｣ 启用后, 选择单个作业时会自动添加到 ｢战斗列表｣</string>
     <string name="panel_autobattle_use_sanity_potion">使用理智药</string>
     <string name="panel_autobattle_loop">循环次数</string>
     <string name="panel_autobattle_sequence_tip">标签顺序可拖动</string>
     <string name="panel_autobattle_empty_entries">暂无条目</string>
     <string name="panel_autobattle_raid_suffix"> (突袭)</string>
     <string name="panel_autobattle_tips_title">小提示</string>
-    <string name="panel_autobattle_tips_body">1. 使用前请确认作业与所选的关卡类型一致。
-2. 主线、故事集、SideStory: 请在关卡界面的右下角存在 ｢开始行动｣ 按钮界面启动。
-3. 保全派驻: resource/copilot 文件夹内置多份作业。请先手动编队，在右下角存在 ｢开始部署｣ 按钮界面启动，可配合 ｢循环次数｣。
-4. 悖论模拟: 选好技能后，在技能选择界面存在 ｢开始模拟｣ 按钮界面启动，1/2 星干员（无技能）在右下角存在 ｢开始模拟｣ 按钮界面开始。若使用 ｢战斗列表｣，请从干员列表 ｢等级/稀有度｣ 筛选下启动。
-5. 其他活动: 仅支持单作业与常规 Copilot 配置，请在目标活动关卡界面直接启动，不支持作业集和战斗列表。
-6. 使用好友助战时，请关闭 ｢自动编队｣ 和 ｢战斗列表｣，手动选择干员后，在编队界面右下角存在 ｢开始行动｣ 按钮界面启动。
-7. 干员若被标记为 ｢特别关注｣，可能影响 ｢自动编队｣ 的识别与选择。建议使用 ｢自动编队｣ 时移除关注，或在报错后关闭 ｢自动编队｣，根据提示手动补充缺失的干员。
-8. Copilot 作业站的神秘代码可在输入框输入后读取：
-● 点击「读取作业」= 读取单作业。
-● 点击「读取作业集」= 导入作业集（仅主线/故事集/SideStory、悖论模拟）。
-9. 战斗列表:
-● 选择作业后，检查下方关卡名是否正确 (例: CV-EX-1)。
-● 可通过「添加普通/添加突袭」按钮添加任务（突袭仅主线）。
-● 可通过「清空列表/清除未勾选」按钮快速整理任务。
-● 请在能看到目标关卡名的界面启动，不支持跨章节导航。
-● 遇到理智不足、战斗失败、未能三星结算时将自动中止。</string>
+    <string name="panel_autobattle_tips_body">1. 使用前请确认作业与所选的关卡类型一致。\n2. 主线、故事集、SideStory: 请在关卡界面的右下角存在 ｢开始行动｣ 按钮界面启动。\n3. 保全派驻: resource/copilot 文件夹内置多份作业。请先手动编队，在右下角存在 ｢开始部署｣ 按钮界面启动，可配合 ｢循环次数｣。\n4. 悖论模拟: 选好技能后，在技能选择界面存在 ｢开始模拟｣ 按钮界面启动，1/2 星干员（无技能）在右下角存在 ｢开始模拟｣ 按钮界面开始。若使用 ｢战斗列表｣，请从干员列表 ｢等级/稀有度｣ 筛选下启动。\n5. 其他活动: 仅支持单作业与常规 Copilot 配置，请在目标活动关卡界面直接启动，不支持作业集和战斗列表。\n6. 使用好友助战时，请关闭 ｢自动编队｣ 和 ｢战斗列表｣，手动选择干员后，在编队界面右下角存在 ｢开始行动｣ 按钮界面启动。\n7. 干员若被标记为 ｢特别关注｣，可能影响 ｢自动编队｣ 的识别与选择。建议使用 ｢自动编队｣ 时移除关注，或在报错后关闭 ｢自动编队｣，根据提示手动补充缺失的干员。\n8. Copilot 作业站的神秘代码可在输入框输入后读取：\n● 点击「读取作业」= 读取单作业。\n● 点击「读取作业集」= 导入作业集（仅主线/故事集/SideStory、悖论模拟）。\n9. 战斗列表:\n● 选择作业后，检查下方关卡名是否正确 (例: CV-EX-1)。\n● 可通过「添加普通/添加突袭」按钮添加任务（突袭仅主线）。\n● 可通过「清空列表/清除未勾选」按钮快速整理任务。\n● 请在能看到目标关卡名的界面启动，不支持跨章节导航。\n● 遇到理智不足、战斗失败、未能三星结算时将自动中止。</string>
 
     <!-- panel: mall -->
     <string name="panel_mall_visit_friends">访问好友</string>
@@ -690,24 +661,13 @@
     <string name="panel_fight_auto_restart_on_drop">游戏掉线时自动重连</string>
     <string name="panel_fight_auto_restart_on_drop_tip">检测到游戏掉线时会自动尝试重连并继续作战</string>
     <string name="panel_fight_series_title">代理倍率</string>
-    <string name="panel_fight_series_tip">• AUTO:
-自动识别关卡最大代理倍率, 保持最大代理倍率且使用理智药后理智不溢出
-
-• 数值 (1~6):
-按设定倍率执行代理
-若当前理智不足完成设定倍率 (如仅够 5 次 but 设为 6 倍), 则无法进入战斗
-或者
-战斗次数不足完成设定倍率 (如仅够 5 次 but 设为 6 倍), 也将无法进入战斗
-
-• 不切换:
-不调整游戏内代理倍率设定</string>
+    <string name="panel_fight_series_tip">• AUTO:\n自动识别关卡最大代理倍率, 保持最大代理倍率且使用理智药后理智不溢出\n\n• 数值 (1~6):\n按设定倍率执行代理\n若当前理智不足完成设定倍率 (如仅够 5 次 but 设为 6 倍), 则无法进入战斗\n或者\n战斗次数不足完成设定倍率 (如仅够 5 次 but 设为 6 倍), 也将无法进入战斗\n\n• 不切换:\n不调整游戏内代理倍率设定</string>
     <string name="panel_fight_series_no_switch">不切换</string>
     <string name="panel_fight_stage_reset_current">当前/上次</string>
     <string name="panel_fight_stage_reset_ignore">不切换</string>
     <string name="panel_fight_stage_reset_title">未开放关卡重置为</string>
     <string name="panel_fight_stage_selection_title">关卡选择</string>
-    <string name="panel_fight_stage_plan_tip">将执行第一个开放的关卡, 如所有关卡均未开放则跳过当前任务
-当前执行: %1$s</string>
+    <string name="panel_fight_stage_plan_tip">将执行第一个开放的关卡, 如所有关卡均未开放则跳过当前任务\n当前执行: %1$s</string>
     <string name="panel_fight_stage_selection_tip">可手动输入关卡代码，支持简写\n例如：龙门币→CE-6，经验→LS-6</string>
     <string name="panel_fight_primary_stage_label">首选关卡</string>
     <string name="panel_fight_primary_stage_placeholder">例如: CE-6 或 龙门币</string>

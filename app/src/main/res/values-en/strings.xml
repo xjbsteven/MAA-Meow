@@ -619,8 +619,7 @@
     <string name="panel_fight_stage_reset_ignore">Do not switch</string>
     <string name="panel_fight_stage_reset_title">When stage is closed, reset to</string>
     <string name="panel_fight_stage_selection_title">Stage</string>
-    <string name="panel_fight_stage_plan_tip">Executes the first open stage. If all stages are closed, skips the current task.
-Current execution: %1$s</string>
+    <string name="panel_fight_stage_plan_tip">Executes the first open stage. If all stages are closed, skips the current task.\nCurrent execution: %1$s</string>
     <string name="panel_fight_stage_selection_tip">Manual stage code entry supports common aliases.\nFor example: Lungmen Dollars → CE-6, EXP → LS-6.</string>
     <string name="panel_fight_primary_stage_label">Primary Stage</string>
     <string name="panel_fight_primary_stage_placeholder">For example: CE-6 or Lungmen Dollars</string>

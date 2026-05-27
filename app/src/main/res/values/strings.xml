@@ -121,10 +121,7 @@
     <string name="maa_recruit_support_operator">编入助战干员：%1$s</string>
 
     <!-- subtask_extra_credit -->
-    <string name="maa_credit_full_only_buy_discount">博士！
-只购买折扣商品让信用点数溢出了！
-小心信用点数浪费哦！
-剩余信用点数：</string>
+    <string name="maa_credit_full_only_buy_discount">博士！\n只购买折扣商品让信用点数溢出了！\n小心信用点数浪费哦！\n剩余信用点数：</string>
 
     <!-- subtask_extra_fight -->
     <string name="maa_start_combat">开始战斗: </string>
