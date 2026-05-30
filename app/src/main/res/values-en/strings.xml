@@ -356,7 +356,7 @@
     <string name="maa_start_task">Start task: </string>
     <string name="maa_complete_task">Complete task: </string>
     <string name="maa_task_stopped">Has stopped</string>
-    <string name="maa_all_tasks_complete">All task(s) completed!\n(in %1$s)</string>
+    <string name="maa_all_tasks_complete">All task(s) completed!</string>
     <string name="maa_routing_restart_too_many_battles">Too many battles ahead: %1$s, restarting route</string>
     <string name="maa_ends_with_script">Ends with Script</string>
     <string name="maa_fight">Combat</string>
@@ -483,7 +483,7 @@
     <string name="maa_medicine_used_times_with_expiring">Medicine: %1$s,%2$s(Expiring)  </string>
     <string name="maa_stone_used_times">Stone: %1$s  </string>
     <string name="maa_mission_start_fight_task">Mission started %1$s times (-%2$s Sanity)</string>
-    <string name="maa_screencap_cost">Screencap Cost min/avg/max(ms): {0:#,#} / {1:#,#} / {2:#,#} (%4$s)</string>
+    <string name="maa_screencap_cost">Screencap Cost min/avg/max(ms): %1$s / %2$s / %3$s (%4$s)</string>
     <string name="maa_sanity_recovery">Sanity will be full at %1$s (in %2$s)</string>
 
     <!-- common: additional -->
