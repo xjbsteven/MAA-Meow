@@ -17,5 +17,5 @@
 - [x] 外部通知支持
   在任务开始、结束或异常时，支持通过外部渠道推送通知，方便及时了解运行状态
 
-- [ ] MaaFramework Controller 迁移
+- [x] MaaFramework Controller 迁移
   逐步迁移至 MaaFramework AndroidNativeController，优化底层实现，为后续功能扩展与维护打下基础
