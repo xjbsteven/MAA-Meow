@@ -223,8 +223,6 @@ class UpdateService(
 
         _resourceProcessState.value = UpdateProcessState.Extracting(0, 0, 0)
 
-        // 清理旧文件，避免上次失败残留的文件与新版本混合
-        if (target.exists()) target.deleteRecursively()
         target.mkdirs()
 
         val extractResult = extractor.extract(
