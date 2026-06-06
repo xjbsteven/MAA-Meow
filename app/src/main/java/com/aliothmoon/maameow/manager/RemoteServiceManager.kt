@@ -8,14 +8,11 @@ import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.domain.models.RemoteBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
@@ -43,25 +40,6 @@ object RemoteServiceManager {
 
     private var boundBackend: RemoteBackend? = null
 
-    /** 连接超时保护任务 */
-    private var connectingTimeoutJob: Job? = null
-
-    private const val CONNECT_TIMEOUT_MS = 15_000L
-    private const val MAX_CONNECT_RETRY = 2
-
-    /**
-     * getInstance/useRemoteService 的默认等待上限。
-     * 以各 backend 中最长的 connectTimeoutMs 为基准加上重试次数和缓冲，确保调用方在
-     * manager 完成所有重试/错误处理后才超时，而不会提前抛 TimeoutCancellationException。
-     * Root backend 的 connectTimeoutMs = 28s > Shizuku 的 15s，故取 Root 为基准。
-     */
-    private val INSTANCE_GET_TIMEOUT_MS: Long by lazy {
-        val maxBackendTimeout = connectors.values.maxOf {
-            if (it.connectTimeoutMs == Long.MAX_VALUE) CONNECT_TIMEOUT_MS else it.connectTimeoutMs
-        }
-        maxBackendTimeout * MAX_CONNECT_RETRY + 2_000L
-    }
-
     val state: StateFlow<ServiceState> = _state.asStateFlow()
 
     private val connectorCallbacks = object : RemoteServiceConnectorBackend.Callbacks {
@@ -88,8 +66,6 @@ object RemoteServiceManager {
             if (boundBackend != backend) {
                 return
             }
-            connectingTimeoutJob?.cancel()
-            connectingTimeoutJob = null
             Timber.e(throwable, "RemoteService connection failed: %s", backend)
             clearCurrentBinder()
             boundBackend = null
@@ -113,8 +89,6 @@ object RemoteServiceManager {
     }
 
     private fun onBinderConnected(backend: RemoteBackend, binder: IBinder) {
-        connectingTimeoutJob?.cancel()
-        connectingTimeoutJob = null
         clearCurrentBinder()
         currentBinder.set(binder)
         binder.linkToDeath(deathRecipient, 0)
@@ -150,10 +124,6 @@ object RemoteServiceManager {
     }
 
     fun bind() {
-        bindInternal(retryCount = 0)
-    }
-
-    private fun bindInternal(retryCount: Int) {
         val backend = RemoteAccessCoordinator.refresh().configuredBackend
         if (!RemoteAccessCoordinator.isGranted(backend)) {
             val exception = IllegalStateException("${backend.display} permission not granted")
@@ -173,28 +143,9 @@ object RemoteServiceManager {
             handleDisconnect()
         }
 
-        val connector = connectors.getValue(backend)
         boundBackend = backend
         _state.value = ServiceState.Connecting
-        connector.connect(connectorCallbacks)
-
-        // 超时保护：由各 backend 的 connectTimeoutMs 决定时限，MAX_VALUE 表示 backend 自管超时
-        val timeoutMs = connector.connectTimeoutMs
-        connectingTimeoutJob?.cancel()
-        connectingTimeoutJob = if (timeoutMs == Long.MAX_VALUE) null else scope.launch {
-            delay(timeoutMs)
-            if (_state.value !is ServiceState.Connecting) return@launch
-            Timber.w("Service connection timed out (attempt ${retryCount + 1}/$MAX_CONNECT_RETRY)")
-            unbindInternal()
-            if (retryCount < MAX_CONNECT_RETRY - 1) {
-                bindInternal(retryCount + 1)
-            } else {
-                boundBackend = null
-                _state.value = ServiceState.Error(
-                    IllegalStateException("服务连接超时，已重试 $MAX_CONNECT_RETRY 次")
-                )
-            }
-        }
+        connectors.getValue(backend).connect(connectorCallbacks)
     }
 
     private fun unbindInternal() {
@@ -209,18 +160,13 @@ object RemoteServiceManager {
         if (_state.value == ServiceState.Disconnected && boundBackend == null) {
             return
         }
-        connectingTimeoutJob?.cancel()
-        connectingTimeoutJob = null
         unbindingIntentionally.set(true)
         unbindInternal()
-        // 无论当前是 Died 还是其他状态，unbind() 调用后语义上应回到 Disconnected
-        clearCurrentBinder()
-        boundBackend = null
-        _state.value = ServiceState.Disconnected
+        handleDisconnect()
         unbindingIntentionally.set(false)
     }
 
-    suspend fun getInstance(timeoutMs: Long = INSTANCE_GET_TIMEOUT_MS): RemoteService {
+    suspend fun getInstance(timeoutMs: Long = 10_000): RemoteService {
         getInstanceOrNull()?.let { return it }
 
         bind()
@@ -243,7 +189,7 @@ object RemoteServiceManager {
 
 
     suspend fun <R> useRemoteService(
-        timeoutMs: Long = INSTANCE_GET_TIMEOUT_MS,
+        timeoutMs: Long = 12_000,
         action: suspend (RemoteService) -> R
     ): R {
         var accessState = RemoteAccessCoordinator.refresh()

@@ -29,9 +29,6 @@ object RootRemoteServiceConnector : RemoteServiceConnectorBackend {
 
     private const val ROOT_BIND_TIMEOUT_MS = 15_000L
 
-    // 必须大于 shell 启动上限 + ROOT_BIND_TIMEOUT_MS，确保 onFailure/dumpDebugLog 先于 manager 超时执行
-    override val connectTimeoutMs: Long = 10_000L + ROOT_BIND_TIMEOUT_MS + 3_000L
-
     private val initialized = AtomicBoolean(false)
     private val scope = CoroutineScope(Dispatchers.IO.limitedParallelism(1) + SupervisorJob())
 

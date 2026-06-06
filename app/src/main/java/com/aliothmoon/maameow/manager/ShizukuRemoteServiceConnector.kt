@@ -8,17 +8,15 @@ import com.aliothmoon.maameow.domain.models.RemoteBackend
 import com.aliothmoon.maameow.remote.RemoteServiceImpl
 import rikka.shizuku.Shizuku
 import timber.log.Timber
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 object ShizukuRemoteServiceConnector : RemoteServiceConnectorBackend {
 
     override val backend: RemoteBackend = RemoteBackend.SHIZUKU
 
-    // Shizuku 没有内置连接超时，manager 需要在此时限内未收到回调时主动介入
-    override val connectTimeoutMs: Long = 15_000L
-
-    // debug 下每次递增强制重建服务，release 下用 VERSION_CODE 同版本可复用
-    private val debugVersion = AtomicInteger(100)
+    private val serviceTag = UUID.randomUUID().toString()
+    private val serviceVersion = AtomicInteger(100)
 
     @Volatile
     private var activeBinding: ActiveBinding? = null
@@ -83,8 +81,8 @@ object ShizukuRemoteServiceConnector : RemoteServiceConnectorBackend {
         ).apply {
             processNameSuffix("service")
             daemon(false)
-            tag("remote_service")
-            version(if (BuildConfig.DEBUG) debugVersion.incrementAndGet() else BuildConfig.VERSION_CODE)
+            tag(serviceTag)
+            version(serviceVersion.incrementAndGet())
             debuggable(BuildConfig.DEBUG)
         }
     }
