@@ -11,7 +11,6 @@ import com.aliothmoon.maameow.maa.task.MaaTaskType
 import com.aliothmoon.maameow.utils.JsonUtils
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -225,6 +224,9 @@ class CopilotManager(
         config: CopilotConfig
     ): List<MaaTaskParams> {
         val checkedItems = items.filter { it.isChecked }
+        // 上游 #16985: 每个作业项携带其在完整列表中的稳定下标 id(从0起), core 据此回传当前执行项,
+        // 用于跳过失败作业后仍能把"成功"归属到正确项。坐标系须与 onCopilotTaskSuccess 对全列表取下标一致。
+        val indexed = items.withIndex().filter { it.value.isChecked }
         if (tabIndex == 1) { // TAB_SSS — MAA Core SSSCopilot 只接受单个 filename，逐个提交
             return checkedItems.map { item ->
                 MaaTaskParams(
@@ -240,9 +242,13 @@ class CopilotManager(
                 MaaTaskParams(
                     type = MaaTaskType.PARADOX_COPILOT,
                     params = buildJsonObject {
+                        // core CopilotConfig{ id, filename } 两字段均必填
                         put("list", buildJsonArray {
-                            checkedItems.forEach { item ->
-                                add(JsonPrimitive(item.filePath))
+                            indexed.forEach { (i, item) ->
+                                add(buildJsonObject {
+                                    put("id", i)
+                                    put("filename", item.filePath)
+                                })
                             }
                         })
                     }.toString()
@@ -255,8 +261,9 @@ class CopilotManager(
                 type = MaaTaskType.COPILOT,
                 params = buildJsonObject {
                     put("copilot_list", buildJsonArray {
-                        checkedItems.forEach { item ->
+                        indexed.forEach { (i, item) ->
                             add(buildJsonObject {
+                                put("id", i)
                                 put("filename", item.filePath)
                                 put("stage_name", item.name)
                                 put("is_raid", item.isRaid)

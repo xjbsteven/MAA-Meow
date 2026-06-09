@@ -542,8 +542,11 @@ class SubTaskHandler(
             "CopilotListLoadTaskFileSuccess" -> {
                 val fileName = subDetails?.getString("file_name") ?: ""
                 val stageName = subDetails?.getString("stage_name") ?: ""
+                // 上游 #16985: core 回传当前作业在列表中的下标(普通/悖论均发), 用于跳过失败后正确归属
+                val id = subDetails?.getInteger("id") ?: -1
                 append("Parse $fileName[$stageName] Success", LogLevel.INFO)
                 copilotRuntimeStateStore.resetRequirementIgnored()
+                copilotRuntimeStateStore.setCurrentCopilotIndex(id)
             }
 
             "SSSStage" -> {

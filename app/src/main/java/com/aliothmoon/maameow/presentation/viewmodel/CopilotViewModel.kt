@@ -980,13 +980,15 @@ class CopilotViewModel(
                 val checked = snapshot.taskList.filter { it.isChecked }
                 pendingCopilotIds.clear()
                 pendingCopilotIds.addAll(checked.map { it.copilotId }.filter { it > 0 })
-                copilotManager.buildListTask(snapshot.tabIndex, checked, config)
+                // 传完整列表: buildListTask 内部按全列表下标分配 id(与 onCopilotTaskSuccess 同坐标系)
+                copilotManager.buildListTask(snapshot.tabIndex, snapshot.taskList, config)
             } else {
                 val type = resolveSingleTaskType(snapshot)
                 listOf(copilotManager.buildSingleTask(type, snapshot.currentFilePath, config))
             }
 
             runtimeStateStore.resetRequirementIgnored()
+            runtimeStateStore.resetCurrentCopilotIndex()
             _state.update { it.copy(statusMessage = text(R.string.toolbox_status_starting)) }
             val result = compositionService.startCopilot(tasks)
             _state.update { it.copy(statusMessage = formatStartStatus(result)) }
@@ -997,6 +999,7 @@ class CopilotViewModel(
         viewModelScope.launch {
             _state.update { it.copy(statusMessage = text(R.string.toolbox_status_stopping)) }
             compositionService.stop()
+            runtimeStateStore.resetCurrentCopilotIndex()
             _state.update { it.copy(statusMessage = text(R.string.toolbox_status_stopped)) }
         }
     }
@@ -1186,7 +1189,14 @@ class CopilotViewModel(
         val current = _state.value
         if (!current.useCopilotList) return
 
-        val index = current.taskList.indexOfFirst { it.isChecked }
+        // 上游 #16985: 优先用 core 回传的当前作业下标(跳过失败后下标可能不是第一个勾选项);
+        // 回传缺失(-1)或越界/已取消时回退旧行为(第一个勾选项)。
+        val tracked = runtimeStateStore.currentCopilotIndex.value
+        val index = if (tracked in current.taskList.indices && current.taskList[tracked].isChecked) {
+            tracked
+        } else {
+            current.taskList.indexOfFirst { it.isChecked }
+        }
         if (index !in current.taskList.indices) return
 
         val completed = current.taskList[index]
