@@ -15,14 +15,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
@@ -416,6 +413,7 @@ fun UpdateCard(
                         confirmText = stringResource(R.string.update_card_visit_site),
                         dismissText = stringResource(R.string.common_close),
                         icon = Icons.Rounded.Info,
+                        landscapeAdaptive = true,
                         content = {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -723,6 +721,7 @@ private fun AppUpdateConfirmDialog(
         confirmColor = Color(0xFF4CAF50),
         dismissText = stringResource(R.string.dialog_update_later),
         icon = Icons.Rounded.Info,
+        landscapeAdaptive = true,
         content = {
             Column {
                 Text(
@@ -736,10 +735,7 @@ private fun AppUpdateConfirmDialog(
                     Spacer(modifier = Modifier.height(12.dp))
                     MarkdownText(
                         markdown = updateInfo.releaseNote,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 200.dp)
-                            .verticalScroll(rememberScrollState()),
+                        modifier = Modifier.fillMaxWidth(),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 }

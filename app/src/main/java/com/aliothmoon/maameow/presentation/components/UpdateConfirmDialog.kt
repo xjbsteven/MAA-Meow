@@ -30,6 +30,7 @@ fun UpdateConfirmDialog(
         confirmText = stringResource(R.string.update_confirm_download_now),
         confirmColor = Color(0xFF4CAF50),
         dismissText = stringResource(R.string.dialog_update_later),
-        icon = Icons.Rounded.Info
+        icon = Icons.Rounded.Info,
+        landscapeAdaptive = true
     )
 }

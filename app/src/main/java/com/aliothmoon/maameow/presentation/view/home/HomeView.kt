@@ -15,10 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import dev.jeziellago.compose.markdowntext.MarkdownText
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -170,6 +167,7 @@ fun HomeView(
             confirmText = stringResource(R.string.dialog_update_confirm),
             confirmColor = Color(0xFF4CAF50),
             dismissText = stringResource(R.string.dialog_update_dismiss),
+            landscapeAdaptive = true,
             onConfirm = {
                 if (result.appUpdate != null) {
                     updateViewModel.confirmAppDownload(result.appUpdate.version)
@@ -190,10 +188,7 @@ fun HomeView(
                         Spacer(modifier = Modifier.height(12.dp))
                         MarkdownText(
                             markdown = releaseNote,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(max = 200.dp)
-                                .verticalScroll(rememberScrollState()),
+                            modifier = Modifier.fillMaxWidth(),
                             style = MaterialTheme.typography.bodyMedium,
                         )
                     }
@@ -868,7 +863,7 @@ private fun ForegroundModeSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = stringResource(R.string.home_overlay_mode_title),
                         style = MaterialTheme.typography.bodyLarge,

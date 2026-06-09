@@ -4,9 +4,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material3.MaterialTheme
@@ -30,15 +27,13 @@ fun ChangelogDialog(
         confirmText = stringResource(R.string.common_i_got_it),
         dismissText = null,
         icon = Icons.Rounded.Info,
+        landscapeAdaptive = true,
         content = {
             Column {
                 Spacer(modifier = Modifier.height(12.dp))
                 MarkdownText(
                     markdown = content,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 300.dp)
-                        .verticalScroll(rememberScrollState()),
+                    modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.bodyMedium
                 )
             }
