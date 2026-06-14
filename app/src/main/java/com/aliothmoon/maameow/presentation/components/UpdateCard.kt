@@ -65,7 +65,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.update.UpdateCheckResult
@@ -311,7 +310,10 @@ fun UpdateCard(
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Text(stringResource(R.string.update_card_check_button), fontSize = 14.sp)
+                                Text(
+                                    stringResource(R.string.update_card_check_button),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
                             }
                         }
                     }
@@ -354,7 +356,10 @@ fun UpdateCard(
                                     strokeWidth = 2.dp
                                 )
                             } else {
-                                Text(stringResource(R.string.update_card_check_button), fontSize = 14.sp)
+                                Text(
+                                    stringResource(R.string.update_card_check_button),
+                                    style = MaterialTheme.typography.labelLarge
+                                )
                             }
                         }
                     }

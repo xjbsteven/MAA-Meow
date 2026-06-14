@@ -44,10 +44,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
@@ -56,6 +55,7 @@ import com.aliothmoon.maameow.data.log.LogFileInfo
 import com.aliothmoon.maameow.domain.service.LogExportService
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.viewmodel.LogHistoryViewModel
+import com.aliothmoon.maameow.theme.LogTypography
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.koinInject
@@ -292,30 +292,28 @@ private fun LogDetailView(
                             Text(
                                 text = stringResource(R.string.log_detail_task_start),
                                 color = MaterialTheme.colorScheme.primary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                             Text(
                                 text = stringResource(
                                     R.string.log_detail_time,
                                     formatTime(entry.startTime)
                                 ),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                             Text(
                                 text = stringResource(
                                     R.string.log_detail_tasks,
                                     entry.tasks.joinToString(", ")
                                 ),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis
                             )
                             Text(
                                 text = "================================",
                                 color = MaterialTheme.colorScheme.primary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                         }
@@ -325,8 +323,7 @@ private fun LogDetailView(
                         Text(
                             text = "[${formatTimeShort(entry.time)}] [${entry.level}] ${entry.content}",
                             color = color,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp
+                            style = LogTypography.BodyMonospace
                         )
                     }
                     is LogEntry.Footer -> {
@@ -335,28 +332,24 @@ private fun LogDetailView(
                             Text(
                                 text = stringResource(R.string.log_detail_task_end),
                                 color = MaterialTheme.colorScheme.primary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                             Text(
                                 text = stringResource(
                                     R.string.log_detail_end_time,
                                     formatTime(entry.endTime)
                                 ),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                             Text(
                                 text = stringResource(R.string.log_detail_status, entry.status),
                                 color = if (entry.status == "COMPLETED") Color(0xFF4CAF50) else Color(0xFFF44336),
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                             Text(
                                 text = "================================",
                                 color = MaterialTheme.colorScheme.primary,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp
+                                style = LogTypography.BodyMonospace
                             )
                         }
                     }

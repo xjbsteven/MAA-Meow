@@ -7,7 +7,10 @@ import android.graphics.Rect
 import android.os.Build
 import android.view.Gravity
 import android.view.WindowManager
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -19,7 +22,9 @@ import androidx.savedstate.SavedStateRegistry
 import androidx.savedstate.SavedStateRegistryController
 import androidx.savedstate.SavedStateRegistryOwner
 import androidx.savedstate.setViewTreeSavedStateRegistryOwner
+import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.domain.service.MaaSessionLogger
+import com.aliothmoon.maameow.theme.MaaMeowTheme
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,10 +68,20 @@ class ScreenSaverOverlayManager(
             setViewTreeSavedStateRegistryOwner(this@ScreenSaverOverlayManager)
 
             setContent {
-                ScreenSaverView(
-                    sessionLogger = sessionLogger,
-                    onUnlock = { hide() }
-                )
+                MaaMeowTheme(themeMode = AppSettingsManager.ThemeMode.DARK) {
+                    val baseDensity = LocalDensity.current
+                    CompositionLocalProvider(
+                        LocalDensity provides Density(
+                            density = baseDensity.density,
+                            fontScale = baseDensity.fontScale.coerceIn(0.85f, 1.3f)
+                        )
+                    ) {
+                        ScreenSaverView(
+                            sessionLogger = sessionLogger,
+                            onUnlock = { hide() }
+                        )
+                    }
+                }
             }
         }
 

@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aliothmoon.maameow.domain.service.MaaSessionLogger
+import com.aliothmoon.maameow.theme.ScreenSaverDimens
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.LocalTime
@@ -111,10 +112,11 @@ fun ScreenSaverView(
             Text(
                 text = currentTime.format(timeFormatter),
                 style = MaterialTheme.typography.displayLarge.copy(
-                    fontSize = 80.sp,
+                    fontSize = ScreenSaverDimens.ClockFontSize,
                     fontWeight = FontWeight.Light
                 ),
-                color = Color.White.copy(alpha = 0.5f)
+                color = Color.White.copy(alpha = 0.5f),
+                maxLines = 1
             )
 
             Text(

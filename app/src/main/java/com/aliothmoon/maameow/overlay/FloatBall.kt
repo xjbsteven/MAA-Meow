@@ -25,12 +25,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.res.stringResource
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
@@ -96,6 +97,7 @@ fun FloatBall(
     Surface(
         modifier = modifier
             .size(32.dp)
+            .clip(CircleShape)
             .border(1.dp, textColor.copy(alpha = 0.15f), CircleShape)
             .then(alphaModifier)
             .semantics {
@@ -115,8 +117,10 @@ fun FloatBall(
                 Text(
                     text = countdownText,
                     color = textColor,
-                    fontSize = 12.sp,
+                    style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip,
                 )
             } else {
                 Icon(

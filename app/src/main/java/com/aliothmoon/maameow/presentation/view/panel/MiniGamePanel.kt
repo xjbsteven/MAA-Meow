@@ -52,7 +52,6 @@ fun MiniGamePanel(
     val currentGameDisplay = currentGame?.display.asString()
 
     val tabTitleTextStyle = MaterialTheme.typography.bodySmall.copy(
-        fontSize = 13.sp,
         lineHeight = 16.sp
     )
 

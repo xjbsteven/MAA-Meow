@@ -8,6 +8,8 @@ import android.view.ViewGroup
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.setViewTreeLifecycleOwner
@@ -213,7 +215,14 @@ class OverlayController(
                 val themeMode by appSettings.themeMode.collectAsStateWithLifecycle()
 
                 MaaMeowTheme(themeMode = themeMode) {
-                    CompositionLocalProvider(LocalFloatingWindowContext provides true) {
+                    val baseDensity = LocalDensity.current
+                    CompositionLocalProvider(
+                        LocalFloatingWindowContext provides true,
+                        LocalDensity provides Density(
+                            density = baseDensity.density,
+                            fontScale = baseDensity.fontScale.coerceIn(0.85f, 1.3f)
+                        )
+                    ) {
                         val isLocked by _isLocked.collectAsStateWithLifecycle()
                         ExpandedControlPanel(
                             onClose = ::onCloseControlPanel,

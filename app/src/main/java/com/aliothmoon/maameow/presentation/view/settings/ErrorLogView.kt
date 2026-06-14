@@ -43,16 +43,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.viewmodel.ErrorLogViewModel
+import com.aliothmoon.maameow.theme.LogTypography
 import org.koin.androidx.compose.koinViewModel
 import java.time.Instant
 import java.time.ZoneId
@@ -277,8 +276,7 @@ private fun ErrorLogDetailView(
                 Text(
                     text = line,
                     color = color,
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 11.sp,
+                    style = LogTypography.BodyMonospaceSmall,
                     softWrap = false
                 )
             }

@@ -48,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import com.aliothmoon.maameow.R
+import com.aliothmoon.maameow.theme.DenseTabTypography
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -125,13 +126,9 @@ fun AutoBattlePanel(
         }
     } else null
     val tabTitleTextStyle = MaterialTheme.typography.bodySmall.copy(
-        fontSize = 13.sp,
         lineHeight = 16.sp
     )
-    val tabSubtitleTextStyle = MaterialTheme.typography.labelSmall.copy(
-        fontSize = 10.5.sp,
-        lineHeight = 12.sp
-    )
+    val tabSubtitleTextStyle = DenseTabTypography.Subtitle
     val tabSpecs = listOf(
         CopilotTabUiSpec(
             index = 0,

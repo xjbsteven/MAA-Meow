@@ -1,5 +1,6 @@
 package com.aliothmoon.maameow.presentation.view.settings
 
+import android.util.TypedValue
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -169,7 +170,7 @@ fun TaskOverrideEditorView(
 
                     CodeEditor(ctx).apply {
                         typefaceText = android.graphics.Typeface.MONOSPACE
-                        setTextSize(13f)
+                        setTextSize(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 13f, ctx.resources.displayMetrics))
                         setPinLineNumber(true)
                         colorScheme = TextMateColorScheme.create(ThemeRegistry.getInstance())
                         setEditorLanguage(TextMateLanguage.create("source.json", true))
