@@ -42,3 +42,6 @@ android/.cxx
 /app/release
 /app/debug
 /gradle/gradle-daemon-jvm.properties
+
+# Local build toolchain (JDK/NDK downloads for offline builds)
+.build-tools/
