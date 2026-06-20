@@ -1,0 +1,150 @@
+name: Build APK with Custom MAA Core
+
+# Cloud pipeline for testing custom MAA Core (e.g. facility_preset PR):
+# Job 1: build Android arm64 MAA Core from a fork/ref
+# Job 2: deploy Core into MAA-Meow and assemble APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      maa_repo:
+        description: 'MAA fork (owner/repo) containing your Core changes'
+        required: true
+        default: 'xjbsteven/MaaAssistantArknights'
+      maa_ref:
+        description: 'MAA git ref to build (branch/tag/commit)'
+        required: true
+        default: 'dev-v2'
+      build_type:
+        description: 'APK build type'
+        required: true
+        default: 'debug'
+        type: choice
+        options:
+          - debug
+          - release
+
+jobs:
+  build-maa-core:
+    name: Build MAA Android Core
+    runs-on: macos-latest
+    outputs:
+      core_version: ${{ steps.meta.outputs.core_version }}
+    steps:
+      - name: Checkout MAA
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.maa_repo }}
+          ref: ${{ inputs.maa_ref }}
+
+      - name: Fetch MaaUtils submodule
+        run: git submodule update --init --depth 1 src/MaaUtils
+
+      - name: Resolve Core version label
+        id: meta
+        run: |
+          ver="$(git describe --tags --match 'v*' HEAD 2>/dev/null || echo "local-$(git rev-parse --short HEAD)")"
+          echo "core_version=${ver}" >> "$GITHUB_OUTPUT"
+          echo "Core version label: ${ver}"
+
+      - name: Bootstrap MaaDeps (arm64-android)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/maadeps-download.py arm64-android
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+
+      - name: Configure, build and install (arm64)
+        run: |
+          cmake -B build --preset android-publish-arm64 \
+            -DCMAKE_TOOLCHAIN_FILE=${{ steps.setup-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake \
+            -DMAA_HASH_VERSION='${{ steps.meta.outputs.core_version }}'
+          cmake --build build --parallel $(sysctl -n hw.logicalcpu)
+          cmake --install build --prefix install
+
+      - name: Download MaaFramework control unit
+        uses: robinraju/release-downloader@v1
+        with:
+          repository: MaaXYZ/MaaFramework
+          latest: true
+          fileName: "*android-aarch64*.zip"
+          extract: true
+          out-file-path: MaaFramework-temp
+
+      - name: Copy MaaAndroidNativeControlUnit
+        run: cp MaaFramework-temp/bin/libMaaAndroidNativeControlUnit.so install/
+
+      - name: Upload MAA Core install tree
+        uses: actions/upload-artifact@v4
+        with:
+          name: maa-android-arm64-install
+          path: install/
+          compression-level: 6
+
+  build-apk:
+    name: Build MAA-Meow APK
+    needs: build-maa-core
+    runs-on: macos-latest
+    steps:
+      - name: Checkout MAA-Meow
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download custom MAA Core
+        uses: actions/download-artifact@v4
+        with:
+          name: maa-android-arm64-install
+          path: maa-install
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install NDK and CMake
+        run: sdkmanager --install "ndk;29.0.13113456" "cmake;3.22.1"
+
+      - name: Deploy custom MAA Core into project
+        run: |
+          python scripts/deploy_local_maa_core.py \
+            --install-dir "$GITHUB_WORKSPACE/maa-install" \
+            --abi arm64-v8a \
+            --version "${{ needs.build-maa-core.outputs.core_version }}"
+
+      - name: Print MAA Resource version
+        run: cat app/src/main/assets/MaaSync/MaaResource/version.json
+
+      - name: Build Debug APK
+        if: inputs.build_type == 'debug'
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean assembleDebug
+
+      - name: Build Release APK
+        if: inputs.build_type == 'release'
+        env:
+          KEYSTORE_PATH: ${{ github.workspace }}/release.jks
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > release.jks
+          chmod +x ./gradlew
+          ./gradlew clean assembleRelease
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: meow-apk-${{ needs.build-maa-core.outputs.core_version }}-${{ inputs.build_type }}
+          path: |
+            app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/release/*.apk
