@@ -27,6 +27,8 @@ CUSTOM_CORE_SO = {"libMaaCore.so", "libMaaUtils.so"}
 CUSTOM_EXTRA_SO = {"libMaaAndroidNativeControlUnit.so"}
 # OCR model dirs replaced from official tarball for lib/model compatibility.
 OFFICIAL_RESOURCE_OVERLAY = ("PaddleOCR", "PaddleCharOCR")
+# NDK bridge build already ships libc++_shared; do not duplicate from MAA tarball.
+OFFICIAL_SO_SKIP = {"libc++_shared.so"}
 REQUIRED_JNI_LIBS = (
     "libMaaCore.so",
     "libMaaUtils.so",
@@ -214,7 +216,9 @@ def deploy(
     if hybrid_official_so:
         tarball = _ensure_official_tarball(project_root, abi)
         official_names = _extract_official_so(
-            tarball, jnilib_dir, skip_names=CUSTOM_CORE_SO | CUSTOM_EXTRA_SO
+            tarball,
+            jnilib_dir,
+            skip_names=CUSTOM_CORE_SO | CUSTOM_EXTRA_SO | OFFICIAL_SO_SKIP,
         )
         print(f"[HYBRID] official so={len(official_names)}: {', '.join(sorted(official_names))}")
         overlay_count = _extract_official_resource_overlay(
