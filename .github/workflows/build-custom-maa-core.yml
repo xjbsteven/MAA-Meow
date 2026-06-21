@@ -114,11 +114,14 @@ jobs:
         run: sdkmanager --install "ndk;29.0.13113456" "cmake;3.22.1"
 
       - name: Deploy custom MAA Core into project
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python scripts/deploy_local_maa_core.py \
             --install-dir "$GITHUB_WORKSPACE/maa-install" \
             --abi arm64-v8a \
-            --version "${{ needs.build-maa-core.outputs.core_version }}"
+            --version "${{ needs.build-maa-core.outputs.core_version }}" \
+            --hybrid-official-so
 
       - name: Print MAA Resource version
         run: cat app/src/main/assets/MaaSync/MaaResource/version.json

@@ -4,17 +4,115 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import shutil
-import sys
+import tarfile
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 ASSETS_RESOURCE_DIR = Path("app/src/main/assets/MaaSync/MaaResource")
 JNILIBS_DIR = Path("app/src/main/jniLibs")
 VERSION_FILE = Path(".maaversion")
-EXCLUDE_SO = {"libc++_shared.so"}
+CACHE_DIR = Path(".maa-cache")
+DEFAULT_GITHUB_REPO = "MaaAssistantArknights/MaaAssistantArknights"
+ABI_KEYWORDS = {
+    "arm64-v8a": "android-arm64",
+    "x86_64": "android-x64",
+}
+# Always taken from the custom cmake install (must match each other).
+CUSTOM_CORE_SO = {"libMaaCore.so", "libMaaUtils.so"}
+# Also copied from custom install even in hybrid mode (not in official MAA tarball).
+CUSTOM_EXTRA_SO = {"libMaaAndroidNativeControlUnit.so"}
+# Skip when copying from official tarball; custom build may ship a broken OCR stack.
+EXCLUDE_SO = set()
 
 
-def deploy(install_dir: Path, project_root: Path, abi: str, version: str) -> None:
+def _fetch_json(url: str) -> dict:
+    token = os.environ.get("GITHUB_TOKEN")
+
+    def _request(with_auth: bool) -> dict:
+        req = urllib.request.Request(url)
+        req.add_header("Accept", "application/vnd.github.v3+json")
+        req.add_header("User-Agent", "MaaMeow-Deploy")
+        if with_auth and token:
+            req.add_header("Authorization", f"token {token}")
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+
+    if not token:
+        return _request(False)
+    try:
+        return _request(True)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            return _request(False)
+        raise
+
+
+def _download_file(url: str, dest: Path) -> None:
+    token = os.environ.get("GITHUB_TOKEN")
+    req = urllib.request.Request(url)
+    req.add_header("Accept", "application/octet-stream")
+    req.add_header("User-Agent", "MaaMeow-Deploy")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with urllib.request.urlopen(req, timeout=600) as resp, open(dest, "wb") as out:
+        shutil.copyfileobj(resp, out)
+
+
+def _ensure_official_tarball(project_root: Path, abi: str) -> Path:
+    keyword = ABI_KEYWORDS[abi]
+    cache_dir = project_root / CACHE_DIR
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    cached = sorted(cache_dir.glob(f"*{keyword}*.tar.gz"))
+    if cached:
+        print(f"[CACHE] Using official tarball: {cached[-1].name}")
+        return cached[-1]
+
+    api = f"https://api.github.com/repos/{DEFAULT_GITHUB_REPO}/releases/latest"
+    print(f"[FETCH] Downloading latest official Android SO tarball ({keyword})")
+    release = _fetch_json(api)
+    asset = next(
+        (a for a in release.get("assets", []) if keyword in a["name"] and a["name"].endswith(".tar.gz")),
+        None,
+    )
+    if asset is None:
+        raise SystemExit(f"[ERROR] No official release asset found for {keyword}")
+
+    dest = cache_dir / asset["name"]
+    _download_file(asset["browser_download_url"], dest)
+    print(f"[DOWNLOAD] {dest.name}")
+    return dest
+
+
+def _extract_official_so(tarball: Path, jnilib_dir: Path, skip_names: set[str]) -> list[str]:
+    copied: list[str] = []
+    with tarfile.open(tarball, "r:gz") as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            name = Path(member.name).name
+            if not name.endswith(".so") or name in skip_names:
+                continue
+            dest = jnilib_dir / name
+            with tar.extractfile(member) as src:
+                dest.write_bytes(src.read())
+            copied.append(name)
+    return copied
+
+
+def deploy(
+    install_dir: Path,
+    project_root: Path,
+    abi: str,
+    version: str,
+    *,
+    hybrid_official_so: bool = False,
+) -> None:
     if not install_dir.is_dir():
         raise SystemExit(f"[ERROR] install dir not found: {install_dir}")
 
@@ -45,15 +143,33 @@ def deploy(install_dir: Path, project_root: Path, abi: str, version: str) -> Non
             existing.unlink()
 
     copied_so = 0
-    for so in install_dir.glob("*.so"):
-        if so.name in EXCLUDE_SO:
-            continue
-        shutil.copy2(so, jnilib_dir / so.name)
-        copied_so += 1
+    if hybrid_official_so:
+        tarball = _ensure_official_tarball(project_root, abi)
+        official_names = _extract_official_so(
+            tarball, jnilib_dir, skip_names=CUSTOM_CORE_SO | CUSTOM_EXTRA_SO
+        )
+        print(f"[HYBRID] official so={len(official_names)}: {', '.join(sorted(official_names))}")
+        for name in sorted(CUSTOM_CORE_SO | CUSTOM_EXTRA_SO):
+            src = install_dir / name
+            if not src.is_file():
+                if name in CUSTOM_EXTRA_SO:
+                    print(f"[HYBRID] skip optional custom so (missing): {name}")
+                    continue
+                raise SystemExit(f"[ERROR] custom core library missing: {src}")
+            shutil.copy2(src, jnilib_dir / name)
+            copied_so += 1
+            print(f"[HYBRID] custom so: {name}")
+    else:
+        for so in install_dir.glob("*.so"):
+            if so.name in EXCLUDE_SO:
+                continue
+            shutil.copy2(so, jnilib_dir / so.name)
+            copied_so += 1
 
     (project_root / VERSION_FILE).write_text(version + "\n", encoding="utf-8")
     print(f"[VERSION] {VERSION_FILE}: {version}")
-    print(f"[DONE] resource={copied_resource} files, so={copied_so} files -> {abi}/")
+    mode = "hybrid" if hybrid_official_so else "full-custom"
+    print(f"[DONE] mode={mode}, resource={copied_resource} files, so={copied_so} custom core libs -> {abi}/")
 
 
 def main() -> None:
@@ -74,10 +190,24 @@ def main() -> None:
         default="local-facility-preset",
         help="Version string written to .maaversion",
     )
+    parser.add_argument(
+        "--hybrid-official-so",
+        action="store_true",
+        help=(
+            "Use official prebuilt OCR/ONNX .so from latest MAA release, "
+            "but keep libMaaCore.so/libMaaUtils.so and resources from --install-dir"
+        ),
+    )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
-    deploy(Path(args.install_dir).resolve(), project_root, args.abi, args.version)
+    deploy(
+        Path(args.install_dir).resolve(),
+        project_root,
+        args.abi,
+        args.version,
+        hybrid_official_so=args.hybrid_official_so,
+    )
 
 
 if __name__ == "__main__":
