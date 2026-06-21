@@ -21,8 +21,9 @@ ABI_KEYWORDS = {
     "arm64-v8a": "android-arm64",
     "x86_64": "android-x64",
 }
-# Always taken from the custom cmake install (must match each other).
-CUSTOM_CORE_SO = {"libMaaCore.so", "libMaaUtils.so"}
+# Only libMaaCore is patched from the custom fork (facility_preset etc.).
+# libMaaUtils and the OCR/ONNX stack must stay on the official release build.
+CUSTOM_CORE_SO = {"libMaaCore.so"}
 # Also copied from custom install even in hybrid mode (not in official MAA tarball).
 CUSTOM_EXTRA_SO = {"libMaaAndroidNativeControlUnit.so"}
 # OCR model dirs replaced from official tarball for lib/model compatibility.
@@ -269,8 +270,8 @@ def main() -> None:
         "--hybrid-official-so",
         action="store_true",
         help=(
-            "Use official prebuilt OCR/ONNX .so from latest MAA release, "
-            "but keep libMaaCore.so/libMaaUtils.so and resources from --install-dir"
+            "Use official prebuilt utils/OCR/ONNX .so from latest MAA release, "
+            "patch only libMaaCore.so from --install-dir, keep custom resources"
         ),
     )
     args = parser.parse_args()
