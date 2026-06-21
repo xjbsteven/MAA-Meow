@@ -131,9 +131,9 @@ jobs:
           echo "=== jniLibs ==="
           ls -lah "$JNI"/*.so
           echo "=== OCR models ==="
-          ls -lah "$RES/resource/PaddleOCR/rec/inference.onnx" \
-                  "$RES/resource/PaddleOCR/det/inference.onnx" \
-                  "$RES/resource/PaddleCharOCR/rec/inference.onnx"
+          ls -lah "$RES/PaddleOCR/rec/inference.onnx" \
+                  "$RES/PaddleOCR/det/inference.onnx" \
+                  "$RES/PaddleCharOCR/rec/inference.onnx"
           echo "=== version ==="
           cat "$RES/version.json"
 
