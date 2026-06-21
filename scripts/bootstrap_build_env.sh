@@ -118,6 +118,27 @@ EOF
     "android-ndk-r29-beta1-darwin.zip" "$SDK/ndk/${NDK_VER}"
 }
 
+install_sdk_extras() {
+  # compileSdk=37 in app/build.gradle.kts; preinstall so Gradle won't block on slow downloads.
+  local sm="$SDK/cmdline-tools/latest/bin/sdkmanager"
+  if [[ ! -x "$sm" ]]; then
+    echo "[WARN] sdkmanager missing; skip platform-tools / android-37.0"
+    return
+  fi
+  export ANDROID_SDK_HOME
+  export PATH="$JAVA_HOME/bin:$PATH"
+  local pkgs=( "platform-tools" "platforms;android-37.0" )
+  for pkg in "${pkgs[@]}"; do
+    echo "[SDK] Ensuring package: $pkg (mirror -> Google fallback)..."
+    yes | "$sm" --sdk_root="$SDK" "$pkg" >/dev/null
+  done
+  if [[ -f "$SDK/platforms/android-37.0/android.jar" ]]; then
+    echo "[SDK] Platform android-37.0 ready"
+  else
+    echo "[WARN] platforms;android-37.0 may still be downloading; re-run bootstrap if Gradle stalls"
+  fi
+}
+
 write_local_properties() {
   cat > "$ROOT/local.properties" <<EOF
 sdk.dir=$SDK
@@ -125,8 +146,11 @@ EOF
   echo "[CONFIG] Wrote $ROOT/local.properties"
 }
 
+mkdir -p "$TOOLS/gradle-home"
+
 install_jdk
 install_android_sdk
+install_sdk_extras
 write_local_properties
 
 cat <<EOF
@@ -134,6 +158,8 @@ cat <<EOF
 [Bootstrap OK]
   JAVA_HOME=$JAVA_HOME
   Android SDK=$SDK
+  GRADLE_USER_HOME=$TOOLS/gradle-home
+  Platform android-37.0 preinstalled (matches compileSdk=37)
 
 Next:
   # If you already have MAA install/ (from CI artifact or local MAA build):
@@ -141,5 +167,8 @@ Next:
 
   # Or fetch Core install tree once from a successful CI run:
   ./scripts/local_build_apk.sh --fetch-core-run 27905867677
+
+  # Kotlin-only changes: skip redeploying 8695+ assets
+  ./scripts/local_build_apk.sh --maa-install /path/to/install --skip-deploy
 
 EOF

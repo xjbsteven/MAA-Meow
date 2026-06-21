@@ -58,7 +58,13 @@ android {
         buildConfigField("String", "MAA_CORE_VERSION", "\"$maaCoreVersion\"")
 
         ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            val devAbi = providers.gradleProperty("devAbi")
+            abiFilters.clear()
+            if (devAbi.isPresent) {
+                abiFilters += devAbi.get()
+            } else {
+                abiFilters += listOf("arm64-v8a", "x86_64")
+            }
         }
 
 

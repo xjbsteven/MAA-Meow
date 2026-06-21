@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shutil
+import subprocess
 import tarfile
 import urllib.error
 import urllib.request
@@ -68,12 +69,29 @@ def _fetch_json(url: str) -> dict:
 
 def _download_file(url: str, dest: Path) -> None:
     token = os.environ.get("GITHUB_TOKEN")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    aria2 = shutil.which("aria2c")
+    if aria2:
+        cmd = [
+            aria2,
+            "-x", "16", "-s", "16", "-k", "1M",
+            "--file-allocation=none", "-c",
+            "-o", dest.name, "-d", str(dest.parent),
+            "--header=Accept: application/octet-stream",
+            "--header=User-Agent: MaaMeow-Deploy",
+        ]
+        if token:
+            cmd.append(f"--header=Authorization: token {token}")
+        cmd.append(url)
+        print(f"[DOWNLOAD] aria2 -> {dest.name}")
+        subprocess.run(cmd, check=True)
+        return
+
     req = urllib.request.Request(url)
     req.add_header("Accept", "application/octet-stream")
     req.add_header("User-Agent", "MaaMeow-Deploy")
     if token:
         req.add_header("Authorization", f"token {token}")
-    dest.parent.mkdir(parents=True, exist_ok=True)
     with urllib.request.urlopen(req, timeout=600) as resp, open(dest, "wb") as out:
         shutil.copyfileobj(resp, out)
 

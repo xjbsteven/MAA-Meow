@@ -9,6 +9,8 @@ MAA_INSTALL=""
 FETCH_RUN=""
 CORE_VERSION="local-facility-preset"
 ABI="arm64-v8a"
+SKIP_DEPLOY=""
+NO_DAEMON=""
 
 usage() {
   cat <<'EOF'
@@ -21,7 +23,9 @@ Options:
   --maa-install PATH   Path to MAA cmake install/ (resource/ + libMaaCore.so ...)
   --fetch-core-run ID  Download maa-android-arm64-install from a GitHub Actions run once
   --core-version VER   Label written to .maaversion (default: local-facility-preset)
-  --abi ABI            arm64-v8a (default) or x86_64
+  --abi ABI            arm64-v8a (default) or x86_64 — builds only this native ABI
+  --skip-deploy        Skip hybrid deploy when jniLibs/assets already present
+  --no-daemon          Disable Gradle daemon (default: keep daemon for faster rebuilds)
   -h, --help           Show this help
 
 Examples:
@@ -37,6 +41,8 @@ while [[ $# -gt 0 ]]; do
     --fetch-core-run) FETCH_RUN="$2"; shift 2 ;;
     --core-version) CORE_VERSION="$2"; shift 2 ;;
     --abi) ABI="$2"; shift 2 ;;
+    --skip-deploy) SKIP_DEPLOY=1; shift ;;
+    --no-daemon) NO_DAEMON=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -66,6 +72,9 @@ fi
 
 export ANDROID_HOME="$SDK"
 export ANDROID_SDK_ROOT="$SDK"
+export ANDROID_SDK_HOME="${ANDROID_SDK_HOME:-$TOOLS/android-home}"
+export GRADLE_USER_HOME="${GRADLE_USER_HOME:-$TOOLS/gradle-home}"
+mkdir -p "$ANDROID_SDK_HOME/.android" "$GRADLE_USER_HOME"
 export PATH="$JAVA_HOME/bin:$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$PATH"
 
 if [[ -n "$FETCH_RUN" ]]; then
@@ -83,16 +92,24 @@ if [[ ! -f "$MAA_INSTALL/libMaaCore.so" ]]; then
 fi
 
 echo "[DEPLOY] Hybrid deploy (official OCR/utils + custom libMaaCore)..."
-python3 "$ROOT/scripts/deploy_local_maa_core.py" \
-  --install-dir "$MAA_INSTALL" \
-  --abi "$ABI" \
-  --version "$CORE_VERSION" \
-  --hybrid-official-so
+if [[ -n "$SKIP_DEPLOY" && -f "$ROOT/app/src/main/jniLibs/$ABI/libMaaCore.so" ]]; then
+  echo "[SKIP] --skip-deploy: reusing deployed jniLibs/assets"
+else
+  python3 "$ROOT/scripts/deploy_local_maa_core.py" \
+    --install-dir "$MAA_INSTALL" \
+    --abi "$ABI" \
+    --version "$CORE_VERSION" \
+    --hybrid-official-so
+fi
 
-echo "[BUILD] assembleDebug ..."
+echo "[BUILD] assembleDebug (abi=$ABI) ..."
 cd "$ROOT"
 chmod +x ./gradlew
-./gradlew assembleDebug --no-daemon
+GRADLE_ARGS=(assembleDebug -PdevAbi="$ABI")
+if [[ -n "$NO_DAEMON" ]]; then
+  GRADLE_ARGS+=(--no-daemon)
+fi
+./gradlew "${GRADLE_ARGS[@]}"
 
 APK="$(find "$ROOT/app/build/outputs/apk/debug" -name '*.apk' | head -1)"
 if [[ -z "$APK" ]]; then
