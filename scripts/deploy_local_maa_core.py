@@ -78,6 +78,21 @@ def _download_file(url: str, dest: Path) -> None:
         shutil.copyfileobj(resp, out)
 
 
+def _validate_official_tarball(tarball: Path, expected_size: int | None = None) -> None:
+    if expected_size and tarball.stat().st_size != expected_size:
+        raise ValueError(f"size mismatch: {tarball.stat().st_size} != {expected_size}")
+    required = {"libMaaUtils.so", "libfastdeploy_ppocr.so", "libonnxruntime.so", "libopencv_world4.so"}
+    with tarfile.open(tarball, "r:gz") as tar:
+        names = {
+            Path(m.name).name
+            for m in tar.getmembers()
+            if m.isfile() and m.name.endswith(".so")
+        }
+    missing = sorted(required - names)
+    if missing:
+        raise ValueError(f"incomplete tarball, missing: {', '.join(missing)}")
+
+
 def _ensure_official_tarball(project_root: Path, abi: str) -> Path:
     keyword = ABI_KEYWORDS[abi]
     cache_dir = project_root / CACHE_DIR
@@ -85,8 +100,13 @@ def _ensure_official_tarball(project_root: Path, abi: str) -> Path:
 
     cached = sorted(cache_dir.glob(f"*{keyword}*.tar.gz"))
     if cached:
-        print(f"[CACHE] Using official tarball: {cached[-1].name}")
-        return cached[-1]
+        candidate = cached[-1]
+        try:
+            _validate_official_tarball(candidate)
+            print(f"[CACHE] Using official tarball: {candidate.name}")
+            return candidate
+        except ValueError as exc:
+            print(f"[WARN] Cached tarball invalid ({exc}); re-downloading")
 
     api = f"https://api.github.com/repos/{DEFAULT_GITHUB_REPO}/releases/latest"
     print(f"[FETCH] Downloading latest official Android SO tarball ({keyword})")
@@ -100,6 +120,11 @@ def _ensure_official_tarball(project_root: Path, abi: str) -> Path:
 
     dest = cache_dir / asset["name"]
     _download_file(asset["browser_download_url"], dest)
+    try:
+        _validate_official_tarball(dest, expected_size=asset.get("size"))
+    except ValueError as exc:
+        dest.unlink(missing_ok=True)
+        raise SystemExit(f"[ERROR] Downloaded official tarball invalid: {exc}") from exc
     print(f"[DOWNLOAD] {dest.name}")
     return dest
 
