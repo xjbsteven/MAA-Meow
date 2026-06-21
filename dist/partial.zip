@@ -1,5 +1,0 @@
-{
-  "message": "Unsupported 'Accept' header: 'application/octet-stream'. Must accept 'application/json'.",
-  "documentation_url": "https://docs.github.com/v3/media",
-  "status": "415"
-}

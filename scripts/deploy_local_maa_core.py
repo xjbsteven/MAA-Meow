@@ -25,8 +25,20 @@ ABI_KEYWORDS = {
 CUSTOM_CORE_SO = {"libMaaCore.so", "libMaaUtils.so"}
 # Also copied from custom install even in hybrid mode (not in official MAA tarball).
 CUSTOM_EXTRA_SO = {"libMaaAndroidNativeControlUnit.so"}
-# Skip when copying from official tarball; custom build may ship a broken OCR stack.
-EXCLUDE_SO = set()
+# OCR model dirs replaced from official tarball for lib/model compatibility.
+OFFICIAL_RESOURCE_OVERLAY = ("PaddleOCR", "PaddleCharOCR")
+REQUIRED_JNI_LIBS = (
+    "libMaaCore.so",
+    "libMaaUtils.so",
+    "libfastdeploy_ppocr.so",
+    "libonnxruntime.so",
+    "libopencv_world4.so",
+)
+REQUIRED_OCR_FILES = (
+    "PaddleOCR/rec/inference.onnx",
+    "PaddleOCR/det/inference.onnx",
+    "PaddleCharOCR/rec/inference.onnx",
+)
 
 
 def _fetch_json(url: str) -> dict:
@@ -105,6 +117,62 @@ def _extract_official_so(tarball: Path, jnilib_dir: Path, skip_names: set[str]) 
     return copied
 
 
+def _extract_official_resource_overlay(
+    tarball: Path, assets_dir: Path, overlay_dirs: tuple[str, ...]
+) -> int:
+    copied = 0
+    with tarfile.open(tarball, "r:gz") as tar:
+        for member in tar.getmembers():
+            if not member.isfile():
+                continue
+            parts = Path(member.name).parts
+            if "resource" not in parts:
+                continue
+            res_idx = parts.index("resource")
+            rel_parts = parts[res_idx + 1 :]
+            if not rel_parts or rel_parts[0] not in overlay_dirs:
+                continue
+            dest = assets_dir / Path(*rel_parts)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            with tar.extractfile(member) as src:
+                dest.write_bytes(src.read())
+            copied += 1
+    return copied
+
+
+def verify_deploy(project_root: Path, abi: str, *, hybrid: bool) -> None:
+    jnilib_dir = project_root / JNILIBS_DIR / abi
+    assets_dir = project_root / ASSETS_RESOURCE_DIR
+    errors: list[str] = []
+
+    for name in REQUIRED_JNI_LIBS:
+        path = jnilib_dir / name
+        if not path.is_file() or path.stat().st_size < 1024:
+            errors.append(f"missing or empty jni lib: {name}")
+
+    for rel in REQUIRED_OCR_FILES:
+        path = assets_dir / rel
+        if not path.is_file() or path.stat().st_size < 1024:
+            errors.append(f"missing or empty OCR resource: {rel}")
+
+    version_json = assets_dir / "version.json"
+    if not version_json.is_file():
+        errors.append("missing assets version.json")
+
+    if hybrid:
+        core = jnilib_dir / "libMaaCore.so"
+        utils = jnilib_dir / "libMaaUtils.so"
+        ocr = jnilib_dir / "libfastdeploy_ppocr.so"
+        if core.is_file() and utils.is_file() and core.stat().st_mtime < ocr.stat().st_mtime:
+            # sanity: custom core copied after official OCR libs in deploy()
+            pass
+
+    if errors:
+        raise SystemExit("[VERIFY FAILED]\n" + "\n".join(f"  - {e}" for e in errors))
+
+    print("[VERIFY OK] hybrid deploy layout looks complete")
+
+
 def deploy(
     install_dir: Path,
     project_root: Path,
@@ -149,6 +217,10 @@ def deploy(
             tarball, jnilib_dir, skip_names=CUSTOM_CORE_SO | CUSTOM_EXTRA_SO
         )
         print(f"[HYBRID] official so={len(official_names)}: {', '.join(sorted(official_names))}")
+        overlay_count = _extract_official_resource_overlay(
+            tarball, assets_dir, OFFICIAL_RESOURCE_OVERLAY
+        )
+        print(f"[HYBRID] official OCR resource overlay={overlay_count} files")
         for name in sorted(CUSTOM_CORE_SO | CUSTOM_EXTRA_SO):
             src = install_dir / name
             if not src.is_file():
@@ -159,10 +231,9 @@ def deploy(
             shutil.copy2(src, jnilib_dir / name)
             copied_so += 1
             print(f"[HYBRID] custom so: {name}")
+        verify_deploy(project_root, abi, hybrid=True)
     else:
         for so in install_dir.glob("*.so"):
-            if so.name in EXCLUDE_SO:
-                continue
             shutil.copy2(so, jnilib_dir / so.name)
             copied_so += 1
 

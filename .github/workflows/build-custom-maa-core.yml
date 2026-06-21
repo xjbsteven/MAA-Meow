@@ -123,6 +123,20 @@ jobs:
             --version "${{ needs.build-maa-core.outputs.core_version }}" \
             --hybrid-official-so
 
+      - name: Verify hybrid deploy (native libs + OCR models)
+        run: |
+          set -euo pipefail
+          JNI="app/src/main/jniLibs/arm64-v8a"
+          RES="app/src/main/assets/MaaSync/MaaResource"
+          echo "=== jniLibs ==="
+          ls -lah "$JNI"/*.so
+          echo "=== OCR models ==="
+          ls -lah "$RES/resource/PaddleOCR/rec/inference.onnx" \
+                  "$RES/resource/PaddleOCR/det/inference.onnx" \
+                  "$RES/resource/PaddleCharOCR/rec/inference.onnx"
+          echo "=== version ==="
+          cat "$RES/version.json"
+
       - name: Print MAA Resource version
         run: cat app/src/main/assets/MaaSync/MaaResource/version.json
 

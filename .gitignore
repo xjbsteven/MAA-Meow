@@ -45,3 +45,6 @@ android/.cxx
 
 # Local build toolchain (JDK/NDK downloads for offline builds)
 .build-tools/
+
+# Local download / log scratch
+dist/
