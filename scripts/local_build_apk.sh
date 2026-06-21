@@ -71,10 +71,7 @@ export PATH="$JAVA_HOME/bin:$SDK/cmdline-tools/latest/bin:$SDK/platform-tools:$P
 if [[ -n "$FETCH_RUN" ]]; then
   MAA_INSTALL="$TOOLS/maa-install"
   if [[ ! -f "$MAA_INSTALL/libMaaCore.so" ]]; then
-    echo "[FETCH] Downloading maa-android-arm64-install from run $FETCH_RUN ..."
-    mkdir -p "$MAA_INSTALL"
-    gh run download "$FETCH_RUN" --repo xjbsteven/MAA-Meow \
-      --name maa-android-arm64-install -D "$MAA_INSTALL"
+    "$ROOT/scripts/fetch_ci_maa_core.sh" "$FETCH_RUN"
   else
     echo "[CACHE] Reusing $MAA_INSTALL"
   fi
