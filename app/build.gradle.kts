@@ -132,6 +132,16 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Prebuilt MAA/OCR libs break if AGP stripDebugDebugSymbols runs on them
+            // (libMaaUtils.so 17MB -> 1.7MB, WordOcr load failed on device).
+            keepDebugSymbols += setOf(
+                "**/libMaaCore.so",
+                "**/libMaaUtils.so",
+                "**/libfastdeploy_ppocr.so",
+                "**/libonnxruntime.so",
+                "**/libopencv_world4.so",
+                "**/libMaaAndroidNativeControlUnit.so",
+            )
         }
         resources {
             pickFirsts += setOf(
