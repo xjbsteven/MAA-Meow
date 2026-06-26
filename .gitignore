@@ -46,5 +46,8 @@ android/.cxx
 # Local build toolchain (JDK/NDK downloads for offline builds)
 .build-tools/
 
+# Python virtual environment
+.venv/
+
 # Local download / log scratch
 dist/

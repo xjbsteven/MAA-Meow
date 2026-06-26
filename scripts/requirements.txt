@@ -1,0 +1,2 @@
+# Build-time dep for OCR onnx -> ncnn conversion (scripts/convert_ocr_ncnn.py).
+pnnx

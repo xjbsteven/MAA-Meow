@@ -214,8 +214,8 @@ class TaskChainState(
     /**
      * 自定义基建任务链完成后，将目标节点的 planSelect 自动切到下一个计划。
      *
-     * 对齐 WPF `InfrastSettingsUserControlModel.IncreaseCustomInfrastPlanIndex`:
-     * - 仅 Custom 模式生效
+     * 对齐 WPF / Mac `IncreaseCustomInfrastPlanIndex`:
+     * - Custom 或 队列轮换·设施点预设 生效
      * - planSelect == -1(时间轮换)不切
      * - planSelect 越界或计划列表未就绪直接放弃
      * - 自增后超出范围回环到 0
@@ -228,7 +228,8 @@ class TaskChainState(
             return null
         }
         val cfg = node.config as? InfrastConfig ?: return null
-        if (cfg.mode != com.aliothmoon.maameow.domain.enums.InfrastMode.Custom) return null
+        if (!cfg.usesPresetPlan()) return null
+        if (!cfg.autoAdvancePlanIndex) return null
         if (cfg.customInfrastPlanSelect < 0) return null
         val count = cfg.customPlanNames.size
         if (count <= 0) {

@@ -5,7 +5,6 @@ import com.aliothmoon.maameow.data.model.TaskChainNode
 import com.aliothmoon.maameow.data.model.TaskProfile
 import com.aliothmoon.maameow.data.notification.NotificationSettings
 import com.aliothmoon.maameow.data.notification.NotificationSettingsManager
-import com.aliothmoon.maameow.domain.enums.InfrastMode
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants
 import com.aliothmoon.maameow.domain.models.AppSettings
 import com.aliothmoon.maameow.schedule.data.ScheduleStrategyRepository
@@ -85,7 +84,7 @@ class ConfigBackupManager(
             chain = chain.map { node ->
                 val cfg = node.config
                 if (cfg is InfrastConfig
-                    && cfg.mode == InfrastMode.Custom
+                    && cfg.usesPresetPlan()
                     && cfg.defaultInfrast == UiUsageConstants.USER_DEFINED_INFRAST
                 ) {
                     node.copy(config = InfrastConfig())

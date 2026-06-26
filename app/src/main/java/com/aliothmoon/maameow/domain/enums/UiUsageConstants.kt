@@ -23,6 +23,7 @@ object UiUsageConstants {
         "243_layout_3_times_a_day.json" to "243 一天 3 换",
         "243_layout_4_times_a_day.json" to "243 一天 4 换",
         "333_layout_for_Orundum_3_times_a_day.json" to "333 一天 3 换",
+        "facility_preset_3_shifts_daily.json" to "设施预设 一天 3 换",
     )
 
 

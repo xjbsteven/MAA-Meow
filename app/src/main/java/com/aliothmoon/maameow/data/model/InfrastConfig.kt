@@ -2,6 +2,7 @@ package com.aliothmoon.maameow.data.model
 
 
 import com.aliothmoon.maameow.domain.enums.InfrastMode
+import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.domain.enums.InfrastRoomType
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
@@ -42,6 +43,14 @@ data class InfrastConfig(
      */
     val mode: InfrastMode = InfrastMode.Normal,
 
+    /**
+     * 队列轮换子模式（仅 Rotation 模式有效）
+     * 对应 Mac: rotation_style
+     * - Game: 游戏内一键轮换
+     * - StationPreset: 进驻总览设施点预设
+     */
+    val rotationStyle: InfrastRotationStyle = InfrastRotationStyle.Game,
+
     // ============ 自定义基建配置（Custom 模式） ============
 
     /**
@@ -72,6 +81,14 @@ data class InfrastConfig(
      * - 0+: 指定计划索引
      */
     val customInfrastPlanSelect: Int = -1,
+
+    /**
+     * 任务完成后是否自动切换到下一班次
+     * 对应 Mac: auto_advance_plan_index / WPF: AutoAdvancePlanIndex
+     *
+     * 仅在 usesPresetPlan 且 customInfrastPlanSelect >= 0 时生效；不传给 Core。
+     */
+    val autoAdvancePlanIndex: Boolean = true,
 
     // ============ 设施列表（有序） ============
 
@@ -203,6 +220,14 @@ data class InfrastConfig(
 ) : TaskParamProvider {
 
     /**
+     * 是否使用 JSON 排班方案（自定义基建或队列轮换·设施点预设）
+     * 对应 Mac: usesPresetPlan
+     */
+    fun usesPresetPlan(): Boolean =
+        mode == InfrastMode.Custom ||
+            (mode == InfrastMode.Rotation && rotationStyle == InfrastRotationStyle.StationPreset)
+
+    /**
      * 将心情阈值转换为MAA Core需要的浮点数格式(0.0-1.0)
      */
     fun getDormThresholdAsFloat(): Double = dormThreshold / 100.0
@@ -226,7 +251,10 @@ data class InfrastConfig(
             put("reception_clue_exchange", receptionClueExchange)
             put("reception_send_clue", receptionSendClue)
             put("mode", mode.value)
-            if(mode == InfrastMode.Custom){
+            if (mode == InfrastMode.Rotation) {
+                put("rotation_style", rotationStyle.value)
+            }
+            if (usesPresetPlan()) {
                 put("filename", customInfrastFile)
                 put("plan_index", resolveCustomPlanIndex())
             }

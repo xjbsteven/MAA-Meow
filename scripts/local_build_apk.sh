@@ -10,6 +10,7 @@ FETCH_RUN=""
 CORE_VERSION="local-facility-preset"
 ABI="arm64-v8a"
 SKIP_DEPLOY=""
+SKIP_NCNN=""
 NO_DAEMON=""
 
 usage() {
@@ -25,6 +26,7 @@ Options:
   --core-version VER   Label written to .maaversion (default: local-facility-preset)
   --abi ABI            arm64-v8a (default) or x86_64 — builds only this native ABI
   --skip-deploy        Skip hybrid deploy when jniLibs/assets already present
+  --skip-ncnn          Skip onnx->ncnn OCR conversion (only if assets already have *.ncnn.param)
   --no-daemon          Disable Gradle daemon (default: keep daemon for faster rebuilds)
   -h, --help           Show this help
 
@@ -42,6 +44,7 @@ while [[ $# -gt 0 ]]; do
     --core-version) CORE_VERSION="$2"; shift 2 ;;
     --abi) ABI="$2"; shift 2 ;;
     --skip-deploy) SKIP_DEPLOY=1; shift ;;
+    --skip-ncnn) SKIP_NCNN=1; shift ;;
     --no-daemon) NO_DAEMON=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
@@ -100,6 +103,30 @@ else
     --abi "$ABI" \
     --version "$CORE_VERSION" \
     --hybrid-official-so
+fi
+
+RESOURCE="$ROOT/app/src/main/assets/MaaSync/MaaResource"
+NCNN_DET="$RESOURCE/PaddleOCR/det/det.ncnn.param"
+needs_ncnn=0
+if [[ -z "$SKIP_NCNN" ]]; then
+  if [[ -f "$RESOURCE/PaddleOCR/det/inference.onnx" ]] || [[ ! -f "$NCNN_DET" ]]; then
+    needs_ncnn=1
+  fi
+fi
+
+if [[ "$needs_ncnn" -eq 1 ]]; then
+  echo "[NCNN] Converting OCR onnx -> ncnn (Android WordOcr requires det.ncnn.param / rec.ncnn.param)..."
+  VENV="$ROOT/.venv"
+  if [[ ! -x "$VENV/bin/python" ]]; then
+    PY="$(command -v python3.12 || command -v python3)"
+    "$PY" -m venv "$VENV"
+  fi
+  "$VENV/bin/python" -m pip install -q -r "$ROOT/scripts/requirements.txt"
+  "$VENV/bin/python" "$ROOT/scripts/convert_ocr_ncnn.py" \
+    --resource "$RESOURCE" \
+    --cache "$ROOT/.maa-cache/ncnn"
+elif [[ -z "$SKIP_NCNN" ]]; then
+  echo "[SKIP] NCNN OCR models already present under assets"
 fi
 
 echo "[BUILD] assembleDebug (abi=$ABI) ..."

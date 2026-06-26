@@ -61,6 +61,7 @@ import com.aliothmoon.maameow.data.config.MaaPathConfig
 import com.aliothmoon.maameow.data.model.CustomInfrastConfig
 import com.aliothmoon.maameow.data.model.InfrastConfig
 import com.aliothmoon.maameow.domain.enums.InfrastMode
+import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.domain.enums.InfrastRoomType
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipContent
@@ -88,6 +89,8 @@ fun InfrastConfigPanel(
             .padding(PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 4.dp)),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
+        val usesPresetPlan = config.usesPresetPlan()
+        val showDormAdvanced = config.mode != InfrastMode.Rotation || usesPresetPlan
         val pagerState = rememberPagerState(
             initialPage = 0, pageCount = { 2 })
         val coroutineScope = rememberCoroutineScope()
@@ -146,9 +149,9 @@ fun InfrastConfigPanel(
                             InfrastModeSection(config, onConfigChange)
                         }
                         item {
-                            // 自定义基建配置 (仅 Custom 模式显示)
+                            // 自定义/设施预设排班（Custom 或 队列轮换·设施点预设）
                             AnimatedVisibility(
-                                visible = config.mode == InfrastMode.Custom,
+                                visible = usesPresetPlan,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -156,9 +159,9 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 无人机用途 (Custom 模式下禁用)
+                            // 无人机用途（预设方案由 JSON 配置）
                             AnimatedVisibility(
-                                visible = config.mode != InfrastMode.Custom,
+                                visible = !usesPresetPlan,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -168,7 +171,7 @@ fun InfrastConfigPanel(
                         item {
                             // 心情阈值 (仅 Normal 模式显示)
                             AnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
+                                visible = config.mode == InfrastMode.Normal,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -176,17 +179,23 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 设施列表
-                            FacilitiesSection(config, onConfigChange)
+                            // 设施列表（队列轮换不显示）
+                            AnimatedVisibility(
+                                visible = config.mode != InfrastMode.Rotation,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                FacilitiesSection(config, onConfigChange)
+                            }
                         }
                     }
 
                     // 高级设置 Tab
                     else -> {
                         item {
-                            // 宿舍信赖模式 (仅 Normal 模式显示)
+                            // 宿舍信赖（常规 / 设施点预设显示）
                             AnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
+                                visible = showDormAdvanced,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -194,9 +203,9 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 不将已进驻干员放入宿舍 (仅 Normal 模式显示)
+                            // 不将已进驻干员放入宿舍
                             AnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
+                                visible = showDormAdvanced,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -266,9 +275,18 @@ private fun InfrastModeSection(
             }
         }
 
-        // Rotation 模式提示文字
         AnimatedVisibility(
             visible = config.mode == InfrastMode.Rotation,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            RotationStyleSection(config, onConfigChange)
+        }
+
+        // Rotation · 游戏内一键轮换 提示
+        AnimatedVisibility(
+            visible = config.mode == InfrastMode.Rotation &&
+                config.rotationStyle == InfrastRotationStyle.Game,
             enter = expandVertically(),
             exit = shrinkVertically()
         ) {
@@ -282,6 +300,54 @@ private fun InfrastModeSection(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+
+        // Rotation · 设施点预设 提示
+        AnimatedVisibility(
+            visible = config.mode == InfrastMode.Rotation &&
+                config.rotationStyle == InfrastRotationStyle.StationPreset,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = stringResource(R.string.panel_infrast_rotation_station_preset_tip),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(12.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RotationStyleSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text(
+            text = stringResource(R.string.panel_infrast_rotation_style_title),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+        InfrastRotationStyle.values.forEach { style ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = config.rotationStyle == style,
+                    onClick = { onConfigChange(config.copy(rotationStyle = style)) },
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = infrastRotationStyleLabel(style),
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
         }
@@ -482,6 +548,25 @@ private fun CustomInfrastSection(
                 onPlanSelected = {
                     onConfigChange(config.copy(customInfrastPlanSelect = it))
                 })
+            if (config.customInfrastPlanSelect >= 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(
+                        checked = config.autoAdvancePlanIndex,
+                        onCheckedChange = {
+                            onConfigChange(config.copy(autoAdvancePlanIndex = it))
+                        },
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = stringResource(R.string.panel_infrast_auto_advance_plan_index),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+            }
         }
 
         //  解析错误提示
@@ -670,7 +755,16 @@ private fun infrastPresetLabel(key: String): String {
         "243_layout_3_times_a_day.json" -> stringResource(R.string.panel_infrast_preset_243_3x)
         "243_layout_4_times_a_day.json" -> stringResource(R.string.panel_infrast_preset_243_4x)
         "333_layout_for_Orundum_3_times_a_day.json" -> stringResource(R.string.panel_infrast_preset_333_3x)
+        "facility_preset_3_shifts_daily.json" -> stringResource(R.string.panel_infrast_preset_facility_3x)
         else -> key
+    }
+}
+
+@Composable
+private fun infrastRotationStyleLabel(style: InfrastRotationStyle): String {
+    return when (style) {
+        InfrastRotationStyle.Game -> stringResource(R.string.panel_infrast_rotation_style_game)
+        InfrastRotationStyle.StationPreset -> stringResource(R.string.panel_infrast_rotation_style_station_preset)
     }
 }
 

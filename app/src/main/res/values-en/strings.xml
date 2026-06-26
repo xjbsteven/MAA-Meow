@@ -742,7 +742,11 @@
     <string name="panel_infrast_mode_normal">Normal Mode</string>
     <string name="panel_infrast_mode_custom">Custom Infrastructure Config</string>
     <string name="panel_infrast_mode_rotation">Queue Rotation</string>
-    <string name="panel_infrast_mode_rotation_tip">The shift rotation logic is exactly the same as the in-game \"Queue Rotation\" button at the bottom right of the base.\nWhen any operator in the current shift reaches 0 mood, the entire shift switches to the next one.\nUse \"Custom Infrastructure Config\" if you need a custom rotation schedule.</string>
+    <string name="panel_infrast_mode_rotation_tip">Queue Rotation matches the in-game \"Queue Rotation\" button at the bottom right of the base.\nWhen any operator in the current shift reaches 0 mood, the entire shift switches to the next one.\nUse \"Custom Infrastructure Config\" or \"Station Overview Preset Switch\" for custom schedules.</string>
+    <string name="panel_infrast_rotation_style_title">Rotation style</string>
+    <string name="panel_infrast_rotation_style_game">In-game queue rotation</string>
+    <string name="panel_infrast_rotation_style_station_preset">Station overview preset switch</string>
+    <string name="panel_infrast_rotation_station_preset_tip">Clicks preset switch buttons on the Station Overview page per the JSON plan without entering operator selection.\nDrone usage can be configured per shift in the JSON; manual operator swaps (e.g. Fiammetta) are not supported.</string>
     <string name="panel_infrast_file_not_found">File not found</string>
     <string name="panel_infrast_parse_failed">Failed to parse: %1$s</string>
     <string name="panel_infrast_scheduler_builder">Custom Infrastructure Scheduler Builder</string>
@@ -754,9 +758,11 @@
     <string name="panel_infrast_preset_243_3x">243, 3 shifts per day</string>
     <string name="panel_infrast_preset_243_4x">243, 4 shifts per day</string>
     <string name="panel_infrast_preset_333_3x">333, 3 shifts per day</string>
+    <string name="panel_infrast_preset_facility_3x">Facility preset, 3 shifts per day</string>
     <string name="panel_infrast_plan_title">Schedule Plan</string>
     <string name="panel_infrast_plan_tip">If \"Base Schedule\" has execution time configured, it will not switch automatically before the \"Base Shift\" task starts or during task execution. It stays in the state at Link Start! and only switches when idle or after the task is completed.</string>
     <string name="panel_infrast_plan_auto_switch">Auto switch by time (%1$s)</string>
+    <string name="panel_infrast_auto_advance_plan_index">Auto save for next plan</string>
     <string name="panel_infrast_plan_missing_period_warning">Only some plans in this custom infrastructure config have time periods configured, which may cause unexpected behavior. If you want time-based shift switching, make sure every plan has a period configured; otherwise leave them all empty.</string>
     <string name="panel_infrast_drones_title">Drone Usage</string>
     <string name="panel_infrast_drones_not_use">Do not use Drones</string>

@@ -795,7 +795,11 @@
     <string name="panel_infrast_mode_normal">常规模式</string>
     <string name="panel_infrast_mode_custom">自定义基建配置</string>
     <string name="panel_infrast_mode_rotation">队列轮换</string>
-    <string name="panel_infrast_mode_rotation_tip">｢队列轮换｣ 的换班逻辑与游戏内基建右下角的「队列轮换」完全一致：\n当当前班次中任意干员心情值为 0 时，会整队替换为下一班干员。\n若需自定义轮换班次，请使用「自定义基建配置」</string>
+    <string name="panel_infrast_mode_rotation_tip">｢队列轮换｣ 的换班逻辑与游戏内基建右下角的「队列轮换」完全一致：\n当当前班次中任意干员心情值为 0 时，会整队替换为下一班干员。\n若需自定义轮换班次，请使用「自定义基建配置」或「进驻总览设施点预设」</string>
+    <string name="panel_infrast_rotation_style_title">轮换方式</string>
+    <string name="panel_infrast_rotation_style_game">游戏内一键轮换</string>
+    <string name="panel_infrast_rotation_style_station_preset">进驻总览设施点预设</string>
+    <string name="panel_infrast_rotation_station_preset_tip">在「进驻总览」页按 JSON 方案点击各设施右侧的预设切换按钮，不会进入干员选择页。\n无人机使用可在 JSON 各班次中单独配置；不支持菲亚梅塔等需手动换人的逻辑。</string>
     <string name="panel_infrast_file_not_found">文件不存在</string>
     <string name="panel_infrast_parse_failed">解析失败: %1$s</string>
     <string name="panel_infrast_scheduler_builder">自定义基建排班制作器</string>
@@ -807,9 +811,11 @@
     <string name="panel_infrast_preset_243_3x">243 一天 3 换</string>
     <string name="panel_infrast_preset_243_4x">243 一天 4 换</string>
     <string name="panel_infrast_preset_333_3x">333 一天 3 换</string>
+    <string name="panel_infrast_preset_facility_3x">设施预设 一天 3 换</string>
     <string name="panel_infrast_plan_title">排班计划</string>
     <string name="panel_infrast_plan_tip">如「基建计划」存在执行时间，「基建换班」任务开始前或任务运行时不会自动切换，将保持 Link Start! 时的状态，仅在空闲或任务完成后切换</string>
     <string name="panel_infrast_plan_auto_switch">根据时间段自动切换 (%1$s)</string>
+    <string name="panel_infrast_auto_advance_plan_index">自动保存为下个计划</string>
     <string name="panel_infrast_plan_missing_period_warning">自定义基建配置仅有部分计划存在时间段，可能会存在预期外的行为。如需设置换班时间段请保证所有计划均设置时间段，否则请全部留空。</string>
     <string name="panel_infrast_drones_title">无人机用途</string>
     <string name="panel_infrast_drones_not_use">不使用无人机</string>
