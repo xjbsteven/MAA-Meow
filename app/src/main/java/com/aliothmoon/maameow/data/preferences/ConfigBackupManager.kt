@@ -84,7 +84,7 @@ class ConfigBackupManager(
             chain = chain.map { node ->
                 val cfg = node.config
                 if (cfg is InfrastConfig
-                    && cfg.usesPresetPlan()
+                    && cfg.usesCustomJsonPlan()
                     && cfg.defaultInfrast == UiUsageConstants.USER_DEFINED_INFRAST
                 ) {
                     node.copy(config = InfrastConfig())

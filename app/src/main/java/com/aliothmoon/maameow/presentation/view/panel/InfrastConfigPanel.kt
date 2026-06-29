@@ -60,6 +60,10 @@ import com.aliothmoon.maameow.constant.MaaApi
 import com.aliothmoon.maameow.data.config.MaaPathConfig
 import com.aliothmoon.maameow.data.model.CustomInfrastConfig
 import com.aliothmoon.maameow.data.model.InfrastConfig
+import com.aliothmoon.maameow.data.model.StationPresetDrones
+import com.aliothmoon.maameow.data.model.StationPresetLayout
+import com.aliothmoon.maameow.data.model.StationPresetRoomList
+import com.aliothmoon.maameow.data.model.syncPresetRoomsAfterLayoutChange
 import com.aliothmoon.maameow.domain.enums.InfrastMode
 import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.domain.enums.InfrastRoomType
@@ -89,8 +93,9 @@ fun InfrastConfigPanel(
             .padding(PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 4.dp)),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        val usesPresetPlan = config.usesPresetPlan()
-        val showDormAdvanced = config.mode != InfrastMode.Rotation || usesPresetPlan
+        val usesCustomJson = config.usesCustomJsonPlan()
+        val usesStationPreset = config.usesRotationStationPreset()
+        val showDormAdvanced = config.mode != InfrastMode.Rotation || usesStationPreset
         val pagerState = rememberPagerState(
             initialPage = 0, pageCount = { 2 })
         val coroutineScope = rememberCoroutineScope()
@@ -149,9 +154,9 @@ fun InfrastConfigPanel(
                             InfrastModeSection(config, onConfigChange)
                         }
                         item {
-                            // 自定义/设施预设排班（Custom 或 队列轮换·设施点预设）
+                            // 自定义基建排班（仅 Custom 模式）
                             AnimatedVisibility(
-                                visible = usesPresetPlan,
+                                visible = usesCustomJson,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -159,9 +164,19 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 无人机用途（预设方案由 JSON 配置）
+                            // 设施点预设：布局与设施选择
                             AnimatedVisibility(
-                                visible = !usesPresetPlan,
+                                visible = usesStationPreset,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                StationPresetSection(config, onConfigChange)
+                            }
+                        }
+                        item {
+                            // 无人机用途（非常规/自定义 JSON 模式）
+                            AnimatedVisibility(
+                                visible = !usesCustomJson && !usesStationPreset,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -193,6 +208,16 @@ fun InfrastConfigPanel(
                     // 高级设置 Tab
                     else -> {
                         item {
+                            // 设施点预设：切换后休整 / 无人机
+                            AnimatedVisibility(
+                                visible = usesStationPreset,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                StationPresetAdvancedSection(config, onConfigChange)
+                            }
+                        }
+                        item {
                             // 宿舍信赖（常规 / 设施点预设显示）
                             AnimatedVisibility(
                                 visible = showDormAdvanced,
@@ -219,6 +244,10 @@ fun InfrastConfigPanel(
                         item {
                             // 会客室留言板领取信用
                             ReceptionMessageBoardReceiveSection(config, onConfigChange)
+                        }
+                        item {
+                            // 会客室接收线索
+                            ReceptionReceiveClueSection(config, onConfigChange)
                         }
                         item {
                             // 会客室线索交流
@@ -341,7 +370,13 @@ private fun RotationStyleSection(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(
                     selected = config.rotationStyle == style,
-                    onClick = { onConfigChange(config.copy(rotationStyle = style)) },
+                    onClick = {
+                        var next = config.copy(rotationStyle = style)
+                        if (style == InfrastRotationStyle.StationPreset && next.presetSelectedRooms.isEmpty()) {
+                            next = next.syncPresetRoomsAfterLayoutChange()
+                        }
+                        onConfigChange(next)
+                    },
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
@@ -352,6 +387,324 @@ private fun RotationStyleSection(
             }
         }
     }
+}
+
+@Composable
+private fun StationPresetSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        StationPresetLayoutSection(config, onConfigChange)
+        StationPresetRoomSection(config, onConfigChange)
+    }
+}
+
+@Composable
+private fun StationPresetLayoutSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = stringResource(R.string.panel_infrast_station_preset_layout_title),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium
+        )
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            LayoutStepper(
+                title = stringResource(R.string.panel_infrast_room_mfg),
+                value = config.presetLayout.mfgCount,
+                range = StationPresetLayout.MFG_RANGE,
+                onValueChange = { count ->
+                    onConfigChange(
+                        config.copy(presetLayout = config.presetLayout.copy(mfgCount = count))
+                            .syncPresetRoomsAfterLayoutChange()
+                    )
+                }
+            )
+            LayoutStepper(
+                title = stringResource(R.string.panel_infrast_room_trade),
+                value = config.presetLayout.tradeCount,
+                range = StationPresetLayout.TRADE_RANGE,
+                onValueChange = { count ->
+                    onConfigChange(
+                        config.copy(presetLayout = config.presetLayout.copy(tradeCount = count))
+                            .syncPresetRoomsAfterLayoutChange()
+                    )
+                }
+            )
+            LayoutStepper(
+                title = stringResource(R.string.panel_infrast_room_power),
+                value = config.presetLayout.powerCount,
+                range = StationPresetLayout.POWER_RANGE,
+                onValueChange = { count ->
+                    onConfigChange(
+                        config.copy(presetLayout = config.presetLayout.copy(powerCount = count))
+                            .syncPresetRoomsAfterLayoutChange()
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun LayoutStepper(
+    title: String,
+    value: Int,
+    range: IntRange,
+    onValueChange: (Int) -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(text = title, style = MaterialTheme.typography.bodySmall)
+            OutlinedButton(
+                onClick = { if (value > range.first) onValueChange(value - 1) },
+                enabled = value > range.first,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.size(32.dp)
+            ) { Text("-", style = MaterialTheme.typography.bodyMedium) }
+            Text(
+                text = value.toString(),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.widthIn(min = 16.dp)
+            )
+            OutlinedButton(
+                onClick = { if (value < range.last) onValueChange(value + 1) },
+                enabled = value < range.last,
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
+                modifier = Modifier.size(32.dp)
+            ) { Text("+", style = MaterialTheme.typography.bodyMedium) }
+        }
+    }
+}
+
+@Composable
+private fun StationPresetRoomSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    val rooms = remember(config.presetLayout) { StationPresetRoomList.rooms(config.presetLayout) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = stringResource(R.string.panel_infrast_station_preset_rooms_title),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.panel_infrast_station_preset_select_all),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        onConfigChange(
+                            config.copy(
+                                presetSelectedRooms = StationPresetRoomList.defaultSelection(config.presetLayout)
+                            )
+                        )
+                    }
+                )
+                Text(
+                    text = stringResource(R.string.panel_infrast_station_preset_clear_all),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clickable {
+                        onConfigChange(config.copy(presetSelectedRooms = emptyList()))
+                    }
+                )
+            }
+        }
+        rooms.forEach { room ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Checkbox(
+                    checked = room.id in config.presetSelectedRooms,
+                    onCheckedChange = { checked ->
+                        val next = config.presetSelectedRooms.toMutableList()
+                        if (checked) {
+                            if (room.id !in next) next += room.id
+                        } else {
+                            next.remove(room.id)
+                        }
+                        onConfigChange(config.copy(presetSelectedRooms = next))
+                    },
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = stationPresetRoomLabel(room.id), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        Text(
+            text = stringResource(R.string.panel_infrast_station_preset_multi_shift_tip),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun StationPresetAdvancedSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Checkbox(
+                checked = config.presetRest,
+                onCheckedChange = { onConfigChange(config.copy(presetRest = it)) },
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.panel_infrast_station_preset_rest),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        StationPresetDronesSection(config, onConfigChange)
+    }
+}
+
+@Composable
+private fun StationPresetDronesSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    val drones = config.stationPresetDrones
+    val indexRange = remember(drones.room, config.presetLayout) {
+        when (drones.room) {
+            StationPresetDrones.Room.Manufacture -> 1..config.presetLayout.mfgCount
+            StationPresetDrones.Room.Trading -> 1..config.presetLayout.tradeCount
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top
+        ) {
+            Checkbox(
+                checked = drones.enable,
+                onCheckedChange = {
+                    onConfigChange(config.copy(stationPresetDrones = drones.copy(enable = it)))
+                },
+                modifier = Modifier.size(20.dp)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = stringResource(R.string.panel_infrast_station_preset_use_drones),
+                style = MaterialTheme.typography.bodyMedium
+            )
+        }
+        AnimatedVisibility(visible = drones.enable) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(
+                    text = stringResource(R.string.panel_infrast_station_preset_drone_room),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StationPresetDrones.Room.entries.forEach { room ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = drones.room == room,
+                                onClick = {
+                                    var next = drones.copy(room = room)
+                                    if (next.index !in indexRange) {
+                                        next = next.copy(index = indexRange.first)
+                                    }
+                                    onConfigChange(config.copy(stationPresetDrones = next))
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = stationPresetDroneRoomLabel(room),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+                Text(
+                    text = stringResource(R.string.panel_infrast_station_preset_drone_index),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    indexRange.forEach { index ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = drones.index == index,
+                                onClick = {
+                                    onConfigChange(config.copy(stationPresetDrones = drones.copy(index = index)))
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(text = index.toString(), style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                Text(
+                    text = stringResource(R.string.panel_infrast_station_preset_drone_order),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StationPresetDrones.Order.entries.forEach { order ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = drones.order == order,
+                                onClick = {
+                                    onConfigChange(config.copy(stationPresetDrones = drones.copy(order = order)))
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                text = stationPresetDroneOrderLabel(order),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun stationPresetRoomLabel(roomId: String): String = when (roomId) {
+    "Control" -> stringResource(R.string.panel_infrast_room_control)
+    "Reception" -> stringResource(R.string.panel_infrast_room_reception)
+    "Office" -> stringResource(R.string.panel_infrast_room_office)
+    else -> when {
+        roomId.startsWith("Mfg") -> stringResource(R.string.panel_infrast_room_mfg) + roomId.removePrefix("Mfg")
+        roomId.startsWith("Trade") -> stringResource(R.string.panel_infrast_room_trade) + roomId.removePrefix("Trade")
+        roomId.startsWith("Power") -> stringResource(R.string.panel_infrast_room_power) + roomId.removePrefix("Power")
+        else -> roomId
+    }
+}
+
+@Composable
+private fun stationPresetDroneRoomLabel(room: StationPresetDrones.Room): String = when (room) {
+    StationPresetDrones.Room.Manufacture -> stringResource(R.string.panel_infrast_room_mfg)
+    StationPresetDrones.Room.Trading -> stringResource(R.string.panel_infrast_room_trade)
+}
+
+@Composable
+private fun stationPresetDroneOrderLabel(order: StationPresetDrones.Order): String = when (order) {
+    StationPresetDrones.Order.Pre -> stringResource(R.string.panel_infrast_station_preset_drone_order_pre)
+    StationPresetDrones.Order.Post -> stringResource(R.string.panel_infrast_station_preset_drone_order_post)
 }
 
 /**
@@ -1113,6 +1466,30 @@ private fun ReceptionMessageBoardReceiveSection(
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = stringResource(R.string.panel_infrast_reception_message_board),
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+        )
+    }
+}
+
+/**
+ * 会客室接收线索
+ */
+@Composable
+private fun ReceptionReceiveClueSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top
+    ) {
+        Checkbox(
+            checked = config.receptionReceiveClue,
+            onCheckedChange = { onConfigChange(config.copy(receptionReceiveClue = it)) },
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.panel_infrast_reception_receive_clue),
             style = MaterialTheme.typography.bodyMedium,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
         )

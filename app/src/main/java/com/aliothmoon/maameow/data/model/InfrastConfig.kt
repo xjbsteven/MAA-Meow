@@ -86,9 +86,23 @@ data class InfrastConfig(
      * 任务完成后是否自动切换到下一班次
      * 对应 Mac: auto_advance_plan_index / WPF: AutoAdvancePlanIndex
      *
-     * 仅在 usesPresetPlan 且 customInfrastPlanSelect >= 0 时生效；不传给 Core。
+     * 仅在 Custom 模式且 customInfrastPlanSelect >= 0 时生效；不传给 Core。
      */
     val autoAdvancePlanIndex: Boolean = true,
+
+    // ============ 进驻总览设施点预设（Rotation · station_preset） ============
+
+    /** 基建布局：制造/贸易/发电站数量 */
+    val presetLayout: StationPresetLayout = StationPresetLayout(),
+
+    /** 本次要切换的设施 ID 列表（如 Control、Mfg1） */
+    val presetSelectedRooms: List<String> = StationPresetRoomList.defaultSelection(StationPresetLayout()),
+
+    /** 切换后干员休整 */
+    val presetRest: Boolean = true,
+
+    /** 设施点预设模式下的无人机配置 */
+    val stationPresetDrones: StationPresetDrones = StationPresetDrones(),
 
     // ============ 设施列表（有序） ============
 
@@ -175,6 +189,12 @@ data class InfrastConfig(
     val receptionMessageBoard: Boolean = true,
 
     /**
+     * 会客室接收线索
+     * 对应 Mac: reception_receive_clue
+     */
+    val receptionReceiveClue: Boolean = true,
+
+    /**
      * 会客室线索交流
      * 对应 WPF: ReceptionClueExchange (bool)
      *
@@ -220,12 +240,20 @@ data class InfrastConfig(
 ) : TaskParamProvider {
 
     /**
-     * 是否使用 JSON 排班方案（自定义基建或队列轮换·设施点预设）
-     * 对应 Mac: usesPresetPlan
+     * 是否使用自定义 JSON 排班（仅 Custom 模式）
+     * 对应 Mac: usesCustomJsonPlan
      */
-    fun usesPresetPlan(): Boolean =
-        mode == InfrastMode.Custom ||
-            (mode == InfrastMode.Rotation && rotationStyle == InfrastRotationStyle.StationPreset)
+    fun usesCustomJsonPlan(): Boolean = mode == InfrastMode.Custom
+
+    /**
+     * 是否为队列轮换 · 进驻总览设施点预设
+     * 对应 Mac: usesRotationStationPreset
+     */
+    fun usesRotationStationPreset(): Boolean =
+        mode == InfrastMode.Rotation && rotationStyle == InfrastRotationStyle.StationPreset
+
+    /** @deprecated 使用 [usesCustomJsonPlan] */
+    fun usesPresetPlan(): Boolean = usesCustomJsonPlan()
 
     /**
      * 将心情阈值转换为MAA Core需要的浮点数格式(0.0-1.0)
@@ -234,29 +262,55 @@ data class InfrastConfig(
     override fun toTaskParams(): MaaTaskParams {
         val threshold = getDormThresholdAsFloat()
         val paramsJson = buildJsonObject {
-            put("facility", buildJsonArray {
-                facilities.filter { it.second }
-                    .map { it.first.name }
-                    .forEach {
-                        add(JsonPrimitive(it))
-                    }
-            })
-            put("drones", usesOfDrones)
             put("continue_training", continueTraining)
             put("threshold", threshold)
             put("dorm_notstationed_enabled", dormFilterNotStationedEnabled)
             put("dorm_trust_enabled", dormTrustEnabled)
             put("replenish", originiumShardAutoReplenishment)
             put("reception_message_board", receptionMessageBoard)
+            put("reception_receive_clue", receptionReceiveClue)
             put("reception_clue_exchange", receptionClueExchange)
             put("reception_send_clue", receptionSendClue)
             put("mode", mode.value)
             if (mode == InfrastMode.Rotation) {
                 put("rotation_style", rotationStyle.value)
             }
-            if (usesPresetPlan()) {
-                put("filename", customInfrastFile)
-                put("plan_index", resolveCustomPlanIndex())
+
+            when {
+                usesRotationStationPreset() -> {
+                    put("facility", buildJsonArray { add(JsonPrimitive("Mfg")) })
+                    put("preset", buildJsonObject {
+                        put("rooms", buildJsonArray {
+                            presetSelectedRooms.forEach { add(JsonPrimitive(it)) }
+                        })
+                        put("rest", presetRest)
+                    })
+                    if (stationPresetDrones.enable) {
+                        put("drones", buildJsonObject {
+                            put("enable", true)
+                            put("room", stationPresetDrones.room.apiValue)
+                            put("index", stationPresetDrones.index)
+                            put("order", stationPresetDrones.order.apiValue)
+                        })
+                    }
+                }
+                usesCustomJsonPlan() -> {
+                    put("facility", buildJsonArray {
+                        facilities.filter { it.second }
+                            .map { it.first.name }
+                            .forEach { add(JsonPrimitive(it)) }
+                    })
+                    put("filename", customInfrastFile)
+                    put("plan_index", resolveCustomPlanIndex())
+                }
+                else -> {
+                    put("facility", buildJsonArray {
+                        facilities.filter { it.second }
+                            .map { it.first.name }
+                            .forEach { add(JsonPrimitive(it)) }
+                    })
+                    put("drones", usesOfDrones)
+                }
             }
         }
 
