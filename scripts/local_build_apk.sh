@@ -12,6 +12,7 @@ ABI="arm64-v8a"
 SKIP_DEPLOY=""
 SKIP_NCNN=""
 NO_DAEMON=""
+VERSION_CODE=""
 
 usage() {
   cat <<'EOF'
@@ -25,6 +26,7 @@ Options:
   --fetch-core-run ID  Download maa-android-arm64-install from a GitHub Actions run once
   --core-version VER   Label written to .maaversion (default: local-facility-preset)
   --abi ABI            arm64-v8a (default) or x86_64 — builds only this native ABI
+  --version-code N     Force Android versionCode (for adb install -r when git history shrinks)
   --skip-deploy        Skip hybrid deploy when jniLibs/assets already present
   --skip-ncnn          Skip onnx->ncnn OCR conversion (only if assets already have *.ncnn.param)
   --no-daemon          Disable Gradle daemon (default: keep daemon for faster rebuilds)
@@ -46,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --skip-deploy) SKIP_DEPLOY=1; shift ;;
     --skip-ncnn) SKIP_NCNN=1; shift ;;
     --no-daemon) NO_DAEMON=1; shift ;;
+    --version-code) VERSION_CODE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown option: $1"; usage; exit 1 ;;
   esac
@@ -132,7 +135,24 @@ fi
 echo "[BUILD] assembleDebug (abi=$ABI) ..."
 cd "$ROOT"
 chmod +x ./gradlew
-GRADLE_ARGS=(assembleDebug -PdevAbi="$ABI")
+
+GIT_CODE="$(git rev-list --count HEAD)"
+LAST_CODE_FILE="$TOOLS/last-version-code"
+if [[ -z "$VERSION_CODE" ]]; then
+  VERSION_CODE="$GIT_CODE"
+  if [[ -f "$LAST_CODE_FILE" ]]; then
+    LAST_CODE="$(<"$LAST_CODE_FILE")"
+    if (( VERSION_CODE <= LAST_CODE )); then
+      VERSION_CODE=$((LAST_CODE + 1))
+      echo "[VERSION] git commit count dropped ($GIT_CODE <= $LAST_CODE); bump versionCode -> $VERSION_CODE"
+    fi
+  fi
+else
+  echo "[VERSION] Using explicit versionCode=$VERSION_CODE (git=$GIT_CODE)"
+fi
+echo "$VERSION_CODE" > "$LAST_CODE_FILE"
+
+GRADLE_ARGS=(assembleDebug -PdevAbi="$ABI" -PversionCodeOverride="$VERSION_CODE")
 if [[ -n "$NO_DAEMON" ]]; then
   GRADLE_ARGS+=(--no-daemon)
 fi

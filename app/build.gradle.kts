@@ -22,6 +22,15 @@ val gitVersionCode: Int by lazy {
     }.standardOutput.asText.get().trim().toInt()
 }
 
+val versionCodeOverride: Int? by lazy {
+    providers.gradleProperty("versionCodeOverride").orNull?.trim()?.toIntOrNull()
+        ?: localProperties.getProperty("versionCodeOverride")?.trim()?.toIntOrNull()
+}
+
+val effectiveVersionCode: Int by lazy {
+    versionCodeOverride ?: gitVersionCode
+}
+
 val gitVersionName: String by lazy {
     val desc = providers.exec {
         commandLine("git", "describe", "--tags", "--always")
@@ -46,9 +55,9 @@ android {
         applicationId = "com.aliothmoon.maameow"
         minSdk = 28
         targetSdk = 36
-        versionCode = gitVersionCode
+        versionCode = effectiveVersionCode
         versionName = gitVersionName
-        println("Build version: versionCode=$versionCode, versionName=$versionName")
+        println("Build version: versionCode=$versionCode (git=$gitVersionCode, override=$versionCodeOverride), versionName=$versionName")
         ndkVersion = "29.0.13113456"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
