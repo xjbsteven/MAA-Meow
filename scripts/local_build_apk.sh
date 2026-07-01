@@ -111,13 +111,17 @@ fi
 RESOURCE="$ROOT/app/src/main/assets/MaaSync/MaaResource"
 NCNN_DET="$RESOURCE/PaddleOCR/det/det.ncnn.param"
 needs_ncnn=0
-if [[ -z "$SKIP_NCNN" ]]; then
-  if [[ -f "$RESOURCE/PaddleOCR/det/inference.onnx" ]] || [[ ! -f "$NCNN_DET" ]]; then
-    needs_ncnn=1
-  fi
+if [[ -f "$RESOURCE/PaddleOCR/det/inference.onnx" ]] || [[ ! -f "$NCNN_DET" ]]; then
+  needs_ncnn=1
 fi
 
-if [[ "$needs_ncnn" -eq 1 ]]; then
+if [[ -n "$SKIP_NCNN" && "$needs_ncnn" -eq 1 ]]; then
+  echo "[ERROR] --skip-ncnn requested but PaddleOCR lacks *.ncnn.param (deploy overwrote onnx-only)."
+  echo "        Remove --skip-ncnn so convert_ocr_ncnn.py runs, or WordOcr will fail on device."
+  exit 1
+fi
+
+if [[ -z "$SKIP_NCNN" && "$needs_ncnn" -eq 1 ]]; then
   echo "[NCNN] Converting OCR onnx -> ncnn (Android WordOcr requires det.ncnn.param / rec.ncnn.param)..."
   VENV="$ROOT/.venv"
   if [[ ! -x "$VENV/bin/python" ]]; then
