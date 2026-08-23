@@ -241,14 +241,24 @@ def deploy(
     assets_dir.mkdir(parents=True, exist_ok=True)
 
     copied_resource = 0
+    skipped_junk = 0
     for src in resource_src.rglob("*"):
         if not src.is_file():
+            continue
+        # macOS Finder metadata breaks AssetExtractor on Android (open/copy fails).
+        if src.name in {".DS_Store", "._.DS_Store"} or src.name.startswith("._"):
+            skipped_junk += 1
+            continue
+        if "__MACOSX" in src.parts:
+            skipped_junk += 1
             continue
         rel = src.relative_to(resource_src)
         dest = assets_dir / rel
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, dest)
         copied_resource += 1
+    if skipped_junk:
+        print(f"[SKIP] ignored {skipped_junk} macOS/junk metadata files under resource/")
 
     jnilib_dir = project_root / JNILIBS_DIR / abi
     jnilib_dir.mkdir(parents=True, exist_ok=True)

@@ -1017,6 +1017,8 @@
     <string name="panel_recruit_use_expedited_tip">此选项不会被保存，每次任务开始前需重新勾选</string>
     <string name="panel_recruit_max_times_title">招募次数</string>
     <string name="panel_recruit_max_times_desc">单次任务最多进行的公招次数</string>
+    <string name="panel_recruit_force_confirm_to_meet_times">优先保证最大招募数量</string>
+    <string name="panel_recruit_force_confirm_to_meet_times_tip">勾选后，为凑满招募次数，当剩余空位不足时，允许对未勾选自动确认的低星（主要是 3 星，以及未确认的 4 星）强制确认。\n仍会先按刷新策略刷新；保留词条与未确认的 5/6 星不会被强制确认；招募次数为 0（仅计算）时本选项无效。</string>
     <string name="panel_recruit_extra_tags_strategy">公招多选 Tag 的策略</string>
     <string name="panel_recruit_extra_tags_none">默认不选择额外 Tag</string>
     <string name="panel_recruit_extra_tags_select">选择高星时总是选择三个 Tag</string>

@@ -964,6 +964,8 @@
     <string name="panel_recruit_use_expedited_tip">This option is not saved and must be checked again before each run</string>
     <string name="panel_recruit_max_times_title">Recruit Max Times</string>
     <string name="panel_recruit_max_times_desc">Maximum number of recruitments per task run</string>
+    <string name="panel_recruit_force_confirm_to_meet_times">Prioritize meeting max recruit times</string>
+    <string name="panel_recruit_force_confirm_to_meet_times_tip">When remaining slots are insufficient to meet the target times, force-confirm unchecked low-star recruits (mainly 3-star, and 4-star not in confirm).\nRefresh still runs first; preserved tags and unconfirmed 5/6-star are never force-confirmed. Ignored when times is 0 (calc-only).</string>
     <string name="panel_recruit_extra_tags_strategy">Strategy for Additional Tags</string>
     <string name="panel_recruit_extra_tags_none">Additional Tags are not selected by default</string>
     <string name="panel_recruit_extra_tags_select">If higher ★ tags appear, always select 3 tags</string>

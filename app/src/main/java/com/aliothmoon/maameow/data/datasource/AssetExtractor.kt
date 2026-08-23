@@ -84,7 +84,14 @@ class AssetExtractor(private val context: Context) {
 
             val manifest = loadAssetManifest()
                 ?: throw IllegalStateException("Assets 清单文件不存在，请重新构建项目")
-            val allFiles = manifest.files.filter { it.startsWith("$assetDir/") }
+            // Defense: ignore macOS junk even if an old manifest still lists them
+            val allFiles = manifest.files.filter { path ->
+                path.startsWith("$assetDir/") &&
+                    path.substringAfterLast('/').let { name ->
+                        name != ".DS_Store" && name != "._.DS_Store" && !name.startsWith("._")
+                    } &&
+                    !path.contains("/__MACOSX/")
+            }
             val totalFiles = allFiles.size
 
             Timber.d("待复制文件数: $totalFiles")

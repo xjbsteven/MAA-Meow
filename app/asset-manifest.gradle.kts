@@ -35,8 +35,13 @@ abstract class GenerateAssetManifestTask : DefaultTask() {
     private fun listFilesRecursively(dir: File, basePath: String): List<String> {
         val result = mutableListOf<String>()
         dir.listFiles()?.forEach { file ->
+            // Skip macOS / junk metadata that breaks AssetExtractor on device
+            if (file.name == ".DS_Store" || file.name == "._.DS_Store" || file.name.startsWith("._")) {
+                return@forEach
+            }
             val relativePath = if (basePath.isEmpty()) file.name else "$basePath/${file.name}"
             if (file.isDirectory) {
+                if (file.name == "__MACOSX") return@forEach
                 result.addAll(listFilesRecursively(file, relativePath))
             } else {
                 result.add(relativePath)

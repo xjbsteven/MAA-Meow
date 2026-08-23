@@ -137,6 +137,9 @@ fun RecruitConfigPanel(
                             Spacer(modifier = Modifier.height(4.dp))
                             RecruitMaxTimesSection(config, onConfigChange)
                         }
+                        item {
+                            ForceConfirmToMeetTimesSection(config, onConfigChange)
+                        }
                     }
 
                     else -> {
@@ -243,6 +246,42 @@ private fun RecruitMaxTimesSection(
             text = stringResource(R.string.panel_recruit_max_times_desc),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+@Composable
+private fun ForceConfirmToMeetTimesSection(
+    config: RecruitConfig,
+    onConfigChange: (RecruitConfig) -> Unit
+) {
+    var tipExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = config.forceConfirmToMeetTimes,
+                onCheckedChange = { onConfigChange(config.copy(forceConfirmToMeetTimes = it)) },
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = stringResource(R.string.panel_recruit_force_confirm_to_meet_times),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            ExpandableTipIcon(
+                expanded = tipExpanded,
+                onExpandedChange = { tipExpanded = it }
+            )
+        }
+        ExpandableTipContent(
+            visible = tipExpanded,
+            tipText = stringResource(R.string.panel_recruit_force_confirm_to_meet_times_tip)
         )
     }
 }

@@ -24,6 +24,15 @@ data class RecruitConfig(
      */
     val maxRecruitTimes: Int = 4,
 
+    /**
+     * 优先保证最大招募数量
+     * 对应 WPF/Mac: ForceConfirmToMeetTimes / force_confirm_to_meet_times
+     *
+     * 勾选后，为凑满 times，当剩余空位 ≤ 仍需招募次数时，允许对未勾选自动确认的低星
+     * （主要是 3 星，以及 confirm 未包含的 4 星）强制确认。
+     * 不强制 5/6 星与保留词条；times 为 0（仅计算）时无效。
+     */
+    val forceConfirmToMeetTimes: Boolean = false,
 
     /**
      * 自动使用加急许可
@@ -248,6 +257,7 @@ data class RecruitConfig(
                 confirmList.forEach { add(JsonPrimitive(it)) }
             })
             put("times", maxRecruitTimes)
+            put("force_confirm_to_meet_times", forceConfirmToMeetTimes)
             put("set_time", true)
             put("expedite", useExpedited)
             if (useExpedited) {
