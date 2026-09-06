@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Build MAA-Meow debug APK locally (hybrid deploy: official OCR stack + custom libMaaCore).
+# Build MAA-Meow debug APK locally.
+# Default: full-custom deploy (matching libMaaCore + libMaaUtils + OCR stack from install/).
+# Hybrid (official OCR/utils + custom Core) is opt-in and breaks when Core >> cached tarball.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -13,6 +15,7 @@ SKIP_DEPLOY=""
 SKIP_NCNN=""
 NO_DAEMON=""
 VERSION_CODE=""
+HYBRID_OFFICIAL_SO=""
 
 usage() {
   cat <<'EOF'
@@ -27,7 +30,9 @@ Options:
   --core-version VER   Label written to .maaversion (default: local-facility-preset)
   --abi ABI            arm64-v8a (default) or x86_64 — builds only this native ABI
   --version-code N     Force Android versionCode (for adb install -r when git history shrinks)
-  --skip-deploy        Skip hybrid deploy when jniLibs/assets already present
+  --hybrid-official-so Use official release OCR/utils .so + custom libMaaCore only
+                       (risky if Core is much newer than cached MAAComponent tarball)
+  --skip-deploy        Skip deploy when jniLibs/assets already present
   --skip-ncnn          Skip onnx->ncnn OCR conversion (only if assets already have *.ncnn.param)
   --no-daemon          Disable Gradle daemon (default: keep daemon for faster rebuilds)
   -h, --help           Show this help
@@ -47,6 +52,7 @@ while [[ $# -gt 0 ]]; do
     --abi) ABI="$2"; shift 2 ;;
     --skip-deploy) SKIP_DEPLOY=1; shift ;;
     --skip-ncnn) SKIP_NCNN=1; shift ;;
+    --hybrid-official-so) HYBRID_OFFICIAL_SO=1; shift ;;
     --no-daemon) NO_DAEMON=1; shift ;;
     --version-code) VERSION_CODE="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
@@ -97,15 +103,42 @@ if [[ ! -f "$MAA_INSTALL/libMaaCore.so" ]]; then
   exit 1
 fi
 
-echo "[DEPLOY] Hybrid deploy (official OCR/utils + custom libMaaCore)..."
+REQUIRED_INSTALL_SO=(
+  libMaaCore.so
+  libMaaUtils.so
+  libfastdeploy_ppocr.so
+  libonnxruntime.so
+  libopencv_world4.so
+)
+install_complete=1
+for so in "${REQUIRED_INSTALL_SO[@]}"; do
+  if [[ ! -f "$MAA_INSTALL/$so" ]]; then
+    install_complete=0
+    break
+  fi
+done
+
+DEPLOY_ARGS=(
+  --install-dir "$MAA_INSTALL"
+  --abi "$ABI"
+  --version "$CORE_VERSION"
+)
+if [[ -n "$HYBRID_OFFICIAL_SO" ]]; then
+  echo "[DEPLOY] Hybrid deploy (official OCR/utils + custom libMaaCore)..."
+  echo "[WARN] Hybrid can break LoadResource when Core version >> cached MAAComponent tarball."
+  DEPLOY_ARGS+=(--hybrid-official-so)
+elif [[ "$install_complete" -eq 1 ]]; then
+  echo "[DEPLOY] Full-custom deploy (matching Core/Utils/OCR stack from install/)..."
+else
+  echo "[DEPLOY] install/ missing OCR/utils .so; falling back to hybrid official stack..."
+  echo "[WARN] Prefer a complete cmake install/ for Core >= official tarball version."
+  DEPLOY_ARGS+=(--hybrid-official-so)
+fi
+
 if [[ -n "$SKIP_DEPLOY" && -f "$ROOT/app/src/main/jniLibs/$ABI/libMaaCore.so" ]]; then
   echo "[SKIP] --skip-deploy: reusing deployed jniLibs/assets"
 else
-  python3 "$ROOT/scripts/deploy_local_maa_core.py" \
-    --install-dir "$MAA_INSTALL" \
-    --abi "$ABI" \
-    --version "$CORE_VERSION" \
-    --hybrid-official-so
+  python3 "$ROOT/scripts/deploy_local_maa_core.py" "${DEPLOY_ARGS[@]}"
 fi
 
 RESOURCE="$ROOT/app/src/main/assets/MaaSync/MaaResource"

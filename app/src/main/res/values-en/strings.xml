@@ -696,7 +696,7 @@
     <string name="panel_fight_auto_restart_on_drop">Reconnect automatically on disconnect</string>
     <string name="panel_fight_auto_restart_on_drop_tip">When the game disconnects, MAA will try to reconnect automatically and continue the battle.</string>
     <string name="panel_fight_series_title">Proxy Rate</string>
-    <string name="panel_fight_series_tip">• AUTO:\nAutomatically detect the maximum proxy multiplier for the stage while keeping sanity potion usage from overflowing sanity.\n\n• Numeric (1~6):\nExecute with the configured multiplier.\nIf current sanity is insufficient to complete the configured multiplier (for example, only enough for 5 runs but set to 6), battle cannot start.\nLikewise, if remaining run count is insufficient for the configured multiplier, battle cannot start.\n\n• Do not switch:\nDo not change the in-game proxy multiplier setting.</string>
+    <string name="panel_fight_series_tip">• AUTO:\nAutomatically detect the maximum proxy multiplier for the stage while keeping sanity potion usage from overflowing sanity.\n\n• Numeric (1~10):\nExecute with the configured multiplier.\nIf current sanity is insufficient to complete the configured multiplier (for example, only enough for 9 runs but set to 10), battle cannot start.\nLikewise, if remaining run count is insufficient for the configured multiplier, battle cannot start.\nOverseas clients with the old series list only support up to 6x; 7~10 will be rejected by Core.\n\n• Do not switch:\nDo not change the in-game proxy multiplier setting.</string>
     <string name="panel_fight_series_no_switch">Do not switch</string>
     <string name="panel_fight_stage_reset_current">Cur/Last</string>
     <string name="panel_fight_stage_reset_ignore">Do not switch</string>

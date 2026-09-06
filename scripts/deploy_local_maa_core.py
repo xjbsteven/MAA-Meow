@@ -22,8 +22,10 @@ ABI_KEYWORDS = {
     "arm64-v8a": "android-arm64",
     "x86_64": "android-x64",
 }
-# Only libMaaCore is patched from the custom fork (facility_preset etc.).
-# libMaaUtils and the OCR/ONNX stack must stay on the official release build.
+# Hybrid mode: only libMaaCore (+ optional control unit) from custom install;
+# Utils/OCR/ONNX come from an official MAAComponent tarball.
+# Prefer full-custom when install/ has a complete matching .so set — hybrid breaks
+# LoadResource if Core is much newer than the cached tarball (e.g. Core 6.17 + Utils 6.12).
 CUSTOM_CORE_SO = {"libMaaCore.so"}
 # Also copied from custom install even in hybrid mode (not in official MAA tarball).
 CUSTOM_EXTRA_SO = {"libMaaAndroidNativeControlUnit.so"}
@@ -186,6 +188,38 @@ def _extract_official_resource_overlay(
     return copied
 
 
+def _template_roots(assets_dir: Path) -> list[Path]:
+    roots = [assets_dir / "template"]
+    global_dir = assets_dir / "global"
+    if global_dir.is_dir():
+        roots.extend(sorted(global_dir.glob("*/resource/template")))
+    return [p for p in roots if p.is_dir()]
+
+
+def _template_basename_collisions(assets_dir: Path) -> list[str]:
+    """Core indexes templates by filename suffix within one resource tree.
+
+    CMake install(DIRECTORY) does not delete stale files, so leftover dirs like
+    InfrastPic/Dorm/DroneConfirm.png vs InfrastPic/Drone/DroneConfirm.png abort LoadResource.
+    UiTheme and global/* overlays are allowed to reuse names.
+    """
+    from collections import defaultdict
+
+    errors: list[str] = []
+    for root in _template_roots(assets_dir):
+        by_name: dict[str, list[Path]] = defaultdict(list)
+        for png in root.rglob("*.png"):
+            if "UiTheme" in png.parts:
+                continue
+            by_name[png.name].append(png)
+        for name, paths in sorted(by_name.items()):
+            if len(paths) < 2:
+                continue
+            rels = [str(p.relative_to(assets_dir)) for p in paths]
+            errors.append(f"duplicate template {name}: " + " | ".join(rels))
+    return errors
+
+
 def verify_deploy(project_root: Path, abi: str, *, hybrid: bool) -> None:
     jnilib_dir = project_root / JNILIBS_DIR / abi
     assets_dir = project_root / ASSETS_RESOURCE_DIR
@@ -205,6 +239,8 @@ def verify_deploy(project_root: Path, abi: str, *, hybrid: bool) -> None:
     if not version_json.is_file():
         errors.append("missing assets version.json")
 
+    errors.extend(_template_basename_collisions(assets_dir))
+
     if hybrid:
         core = jnilib_dir / "libMaaCore.so"
         utils = jnilib_dir / "libMaaUtils.so"
@@ -216,7 +252,8 @@ def verify_deploy(project_root: Path, abi: str, *, hybrid: bool) -> None:
     if errors:
         raise SystemExit("[VERIFY FAILED]\n" + "\n".join(f"  - {e}" for e in errors))
 
-    print("[VERIFY OK] hybrid deploy layout looks complete")
+    mode = "hybrid" if hybrid else "full-custom"
+    print(f"[VERIFY OK] {mode} deploy layout looks complete")
 
 
 def deploy(
@@ -292,13 +329,18 @@ def deploy(
         verify_deploy(project_root, abi, hybrid=True)
     else:
         for so in install_dir.glob("*.so"):
+            if so.name in OFFICIAL_SO_SKIP:
+                print(f"[FULL] skip (NDK already provides): {so.name}")
+                continue
             shutil.copy2(so, jnilib_dir / so.name)
             copied_so += 1
+            print(f"[FULL] so: {so.name}")
+        verify_deploy(project_root, abi, hybrid=False)
 
     (project_root / VERSION_FILE).write_text(version + "\n", encoding="utf-8")
     print(f"[VERSION] {VERSION_FILE}: {version}")
     mode = "hybrid" if hybrid_official_so else "full-custom"
-    print(f"[DONE] mode={mode}, resource={copied_resource} files, so={copied_so} custom core libs -> {abi}/")
+    print(f"[DONE] mode={mode}, resource={copied_resource} files, so={copied_so} libs -> {abi}/")
 
 
 def main() -> None:

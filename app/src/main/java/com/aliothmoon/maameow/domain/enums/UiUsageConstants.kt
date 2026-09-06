@@ -27,9 +27,13 @@ object UiUsageConstants {
     )
 
 
-    // 代理倍率选项 (SeriesList)
+    // 代理倍率选项 (WPF SeriesList: AUTO, 10..1, 不切换)
     val seriesOptions = listOf(
         0 to "AUTO",
+        10 to "10",
+        9 to "9",
+        8 to "8",
+        7 to "7",
         6 to "6",
         5 to "5",
         4 to "4",

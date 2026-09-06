@@ -110,7 +110,7 @@ data class FightConfig(
     /**
      * 代理倍率
      *
-     * 选项: 0(AUTO), 6, 5, 4, 3, 2, 1, -1(不切换)
+     * 选项: 0(AUTO), 10..1, -1(不切换)；国服新列表 Core 接受 -1~10
      * 默认值: 0 (AUTO)
      * 可通过 HideSeries 隐藏
      */
