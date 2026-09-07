@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.view.panel.roguelike
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
@@ -12,10 +11,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.RoguelikeConfig
+import com.aliothmoon.maameow.domain.enums.RoguelikeBlackFlowCultivationTarget
 import com.aliothmoon.maameow.domain.enums.RoguelikeBoskySubNodeType
 import com.aliothmoon.maameow.domain.enums.RoguelikeMode
 import com.aliothmoon.maameow.presentation.components.CheckBoxWithLabel
 import com.aliothmoon.maameow.presentation.components.ITextField
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants.Roguelike as RoguelikeUi
 
 @Composable
@@ -95,7 +96,7 @@ fun ModeSpecificSettings(
                 )
 
                 // WPF: Visibility="StartWithEliteTwo AND mode==Collectible AND (Mizuki OR Sami)" (line 216)
-                AnimatedVisibility(visible = config.startWithEliteTwo) {
+                MaaAnimatedVisibility(visible = config.startWithEliteTwo) {
                     CheckBoxWithLabel(
                         checked = config.onlyStartWithEliteTwo,
                         onCheckedChange = { onConfigChange(config.copy(onlyStartWithEliteTwo = it)) },
@@ -106,7 +107,8 @@ fun ModeSpecificSettings(
 
             // WPF: CheckComboBox (xaml:225-234) 开局奖励选择
             // Visibility: Mode==Collectible AND !RoguelikeOnlyStartWithEliteTwo
-            val computedOnlyEliteTwo = config.onlyStartWithEliteTwo && config.startWithEliteTwo && squadIsProfessional
+            val computedOnlyEliteTwo =
+                config.onlyStartWithEliteTwo && config.startWithEliteTwo && squadIsProfessional
             if (!computedOnlyEliteTwo) {
                 val awardOptions = localizedRoguelikeCollectibleAwardOptions(config.theme)
                 Text(
@@ -178,6 +180,22 @@ fun ModeSpecificSettings(
                 label = stringResource(R.string.panel_roguelike_collapse_list),
                 placeholder = stringResource(R.string.panel_roguelike_collapse_list_placeholder),
                 modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        RoguelikeMode.BlackFlowBabyAnimal -> {
+            RoguelikeButtonGroup(
+                label = stringResource(R.string.panel_roguelike_blackflow_cultivation_target),
+                selectedValue = config.blackFlowCultivationTarget.name,
+                options = localizedRoguelikeCultivationTargetOptions(),
+                onValueChange = {
+                    onConfigChange(
+                        config.copy(
+                            blackFlowCultivationTarget =
+                                RoguelikeBlackFlowCultivationTarget.valueOf(it)
+                        )
+                    )
+                }
             )
         }
 

@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.view.panel.fight
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,6 +16,7 @@ import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.FightConfig
 import com.aliothmoon.maameow.presentation.components.CheckBoxWithLabel
 import com.aliothmoon.maameow.presentation.components.INumericField
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 
 /**
  * 理智药/源石/次数区域
@@ -41,7 +41,7 @@ fun MedicineAndStoneSection(
             label = stringResource(R.string.panel_fight_use_medicine),
             enabled = !config.useStone,
         )
-        AnimatedVisibility(visible = config.useMedicine) {
+        MaaAnimatedVisibility(visible = config.useMedicine) {
             INumericField(
                 value = config.medicineNumber,
                 onValueChange = { onConfigChange(config.copy(medicineNumber = it)) },
@@ -64,7 +64,7 @@ fun MedicineAndStoneSection(
             onCheckedChange = { onConfigChange(config.copy(hasTimesLimited = it)) },
             label = stringResource(R.string.panel_fight_limit_times),
         )
-        AnimatedVisibility(visible = config.hasTimesLimited) {
+        MaaAnimatedVisibility(visible = config.hasTimesLimited) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 INumericField(
                     value = config.maxTimes,
@@ -87,7 +87,11 @@ fun MedicineAndStoneSection(
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = stringResource(R.string.panel_fight_series_warning, config.maxTimes, config.series),
+                            text = stringResource(
+                                R.string.panel_fight_series_warning,
+                                config.maxTimes,
+                                config.series
+                            ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onTertiaryContainer,
                             modifier = Modifier.padding(8.dp)

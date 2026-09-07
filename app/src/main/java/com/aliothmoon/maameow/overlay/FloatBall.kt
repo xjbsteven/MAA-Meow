@@ -27,14 +27,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
+import com.aliothmoon.maameow.theme.MaaMotion
 
 
 @Composable
@@ -58,7 +59,7 @@ fun FloatBall(
 
     val baseColor by animateColorAsState(
         targetValue = targetColor.copy(alpha = 0.85f),
-        animationSpec = tween(300),
+        animationSpec = tween(MaaMotion.Medium),
     )
 
     val textColor = Color.White

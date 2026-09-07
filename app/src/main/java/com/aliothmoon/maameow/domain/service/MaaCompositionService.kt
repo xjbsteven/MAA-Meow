@@ -2,17 +2,19 @@ package com.aliothmoon.maameow.domain.service
 
 import android.content.Context
 import com.alibaba.fastjson2.JSON
-import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.MaaCoreCallback
 import com.aliothmoon.maameow.MaaCoreService
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.RemoteService
 import com.aliothmoon.maameow.constant.DefaultDisplayConfig
+import com.aliothmoon.maameow.constant.Packages
 import com.aliothmoon.maameow.data.model.LogLevel
-
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.data.preferences.TaskChainState
 import com.aliothmoon.maameow.data.resource.ActivityManager
+import com.aliothmoon.maameow.domain.models.RemoteBackend
 import com.aliothmoon.maameow.domain.models.RunMode
+import com.aliothmoon.maameow.domain.notification.LiveSessionCoordinator
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
 import com.aliothmoon.maameow.maa.AsstMsg
 import com.aliothmoon.maameow.maa.MaaInstanceOptions.ANDROID
@@ -22,39 +24,56 @@ import com.aliothmoon.maameow.maa.callback.MaaCallbackDispatcher
 import com.aliothmoon.maameow.maa.callback.MaaExecutionStateHolder
 import com.aliothmoon.maameow.maa.callback.SubTaskHandler
 import com.aliothmoon.maameow.maa.callback.TaskChainStatusTracker
+import com.aliothmoon.maameow.maa.callback.ToolboxResultCollector
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
+import com.aliothmoon.maameow.manager.RemoteAccessCoordinator
 import com.aliothmoon.maameow.manager.RemoteServiceManager
 import com.aliothmoon.maameow.manager.RemoteServiceManager.useRemoteService
+import com.aliothmoon.maameow.manager.ShizukuManager
+import com.aliothmoon.maameow.remote.PermissionGrantRequest
 import com.aliothmoon.maameow.utils.Misc
+import com.aliothmoon.maameow.utils.i18n.UiText
+import com.aliothmoon.maameow.utils.i18n.resolve
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.koin.java.KoinJavaComponent.inject
 import timber.log.Timber
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 class MaaCompositionService(
     private val context: Context,
     private val resourceLoader: MaaResourceLoader,
     private val appSettings: AppSettingsManager,
+    private val gameMuteCoordinator: GameMuteCoordinator,
     private val unifiedStateDispatcher: UnifiedStateDispatcher,
     private val sessionLogger: MaaSessionLogger,
     private val activityManager: ActivityManager,
     private val appWatchdog: AppWatchdog,
+    private val gameFpsWatcher: GameFpsWatcher,
     private val taskChainState: TaskChainState,
     private val subTaskHandler: SubTaskHandler,
     private val taskChainStatusTracker: TaskChainStatusTracker,
     private val notificationCenter: MaaNotificationCenter,
+    private val liveCoordinator: LiveSessionCoordinator,
+    private val dropsRefresher: FightDropsRefresher,
+    private val toolboxResultCollector: ToolboxResultCollector,
+    private val coreDataPusher: CoreDataPusher,
 ) : MaaExecutionStateHolder {
 
     private val _state = MutableStateFlow(MaaExecutionState.IDLE)
@@ -67,6 +86,8 @@ class MaaCompositionService(
     val displayResolution: StateFlow<DefaultDisplayConfig.Resolution> =
         _displayResolution.asStateFlow()
 
+    override fun currentRunState(): MaaExecutionState = _state.value
+
     override fun reportRunState(state: MaaExecutionState) {
         // STOPPING 期间，回调不主动设 IDLE — 由 finishStop() 统一处理
         if (_state.value == MaaExecutionState.STOPPING && state == MaaExecutionState.IDLE) {
@@ -75,16 +96,38 @@ class MaaCompositionService(
         setRunState(state)
     }
 
+    override fun requestStopFromCallback() {
+        val current = _state.value
+        if (current != MaaExecutionState.RUNNING && current != MaaExecutionState.STARTING) {
+            Timber.d("忽略回调侧停止请求：当前状态 $current")
+            return
+        }
+        // 掉线弹窗会连着触发 OfflineConfirm 与 OfflineConfirmAfterBattle，去重后只停一次
+        if (!callbackStopRequested.compareAndSet(false, true)) {
+            Timber.d("回调侧停止请求已在处理中")
+            return
+        }
+        scope.launch {
+            try {
+                stop()
+            } finally {
+                callbackStopRequested.set(false)
+            }
+        }
+    }
+
     private fun setRunState(state: MaaExecutionState) {
+        if (state == MaaExecutionState.STARTING) {
+            // 顺带提前拿断网闸门：这里在 IO 线程，留给 FGS 的 startForeground 拿会占主线程
+            liveCoordinator.prepareProgress(liveCoordinator.beginRun())
+        }
         _state.value = state
-        when (state) {
-            MaaExecutionState.STARTING ->
-                TaskExecutionService.start(context)
-
-            MaaExecutionState.IDLE, MaaExecutionState.ERROR ->
-                TaskExecutionService.stop(context)
-
-            MaaExecutionState.STOPPING, MaaExecutionState.RUNNING -> {}
+        // 仅在 STARTING 拉起前台服务；终态不做外部 stopService —
+        // 快速失败时 stopService 可能抢在服务创建之前到达，系统会因
+        // startForeground 契约未履行直接杀进程（RemoteServiceException）。
+        // 服务自身观察状态流，startForeground 后对 IDLE/ERROR 自行 stopSelf
+        if (state == MaaExecutionState.STARTING) {
+            TaskExecutionService.start(context)
         }
     }
 
@@ -93,6 +136,9 @@ class MaaCompositionService(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val connectDeferred = AtomicReference<CompletableDeferred<Boolean>?>()
+
+    /** 回调侧停止请求的去重闸门 */
+    private val callbackStopRequested = AtomicBoolean(false)
 
     sealed class StartResult {
         data class Success(val version: String) : StartResult()
@@ -112,9 +158,10 @@ class MaaCompositionService(
             }
         }
 
-        /** 显示/连接层失败（虚拟屏幕、连接） */
+        /** 显示/连接层失败（虚拟屏幕、连接）；[shizukuAsRoot] 标记 Shizuku 后端却以 root 运行 */
         data class ConnectionError(
             val phase: ConnectPhase,
+            val shizukuAsRoot: Boolean = false,
         ) : StartResult() {
             enum class ConnectPhase {
                 DISPLAY_MODE,
@@ -129,8 +176,17 @@ class MaaCompositionService(
         /** 前台模式下检测到竖屏（高 > 宽），需要横屏才能运行 */
         data object PortraitOrientationError : StartResult()
 
+        /** 前台模式下物理分辨率不是 16:9，MAA 识别要求 16:9 */
+        data object InvalidAspectRatioError : StartResult()
+
         /** 远程服务正在连接中，任务无法立即启动 */
         data object ServiceConnecting : StartResult()
+
+        /** 远程后端（Shizuku/Root）不可用或无法获取，任务拒绝启动 */
+        data class RemoteAccessUnavailable(val backend: RemoteBackend) : StartResult()
+
+        /** 已有任务在启动/运行/停止，拒绝重入 */
+        data object AlreadyRunning : StartResult()
     }
 
     sealed class StopResult {
@@ -142,11 +198,11 @@ class MaaCompositionService(
     init {
         scope.launch {
             unifiedStateDispatcher.serviceDiedEvent.collect {
-                appWatchdog.stopWatching()
+                stopBackgroundMonitors()
                 setRunState(MaaExecutionState.ERROR)
                 sessionLogger.completeSessionAndWait(
                     "SERVICE_DIED",
-                    "MAA服务异常终止",
+                    context.getString(R.string.runlog_service_terminated),
                     LogLevel.ERROR
                 )
                 notificationCenter.notifyServiceDied()
@@ -157,7 +213,17 @@ class MaaCompositionService(
             appWatchdog.appDiedEvent.collect { packageName ->
                 Timber.w("App watchdog detected app died: %s", packageName)
                 sessionLogger.appendAndWait(
-                    "游戏进程未启动或被异常关闭($packageName)",
+                    context.getString(R.string.runlog_game_process_gone, packageName),
+                    LogLevel.WARNING
+                )
+            }
+        }
+
+        scope.launch {
+            appWatchdog.displayDriftEvent.collect { packageName ->
+                Timber.w("App watchdog detected display drift: %s", packageName)
+                sessionLogger.appendAndWait(
+                    context.getString(R.string.runlog_game_left_virtual_display, packageName),
                     LogLevel.WARNING
                 )
             }
@@ -166,7 +232,7 @@ class MaaCompositionService(
 
     fun handleCallback(msg: Int, json: String?) {
         if (onAsyncConnectCallback(msg, json)) return
-        callbackDispatcher.dispatch(msg, json)
+        callbackDispatcher.onEvent(msg, json)
     }
 
     val callback = object : MaaCoreCallback.Stub() {
@@ -188,25 +254,25 @@ class MaaCompositionService(
     suspend fun start(
         tasks: List<MaaTaskParams>,
         clientType: String,
-        isScheduled: Boolean = false,
+        preflightLogs: List<Pair<UiText, LogLevel>> = emptyList(),
         onSessionStarted: (suspend () -> Unit)? = null
     ): StartResult = executeStart(
         tasks = tasks,
         clientType = clientType,
-        isScheduled = isScheduled,
-        startMessage = "开始执行任务，共 ${tasks.size} 项",
-        successMessage = "任务开始运行",
+        startMessage = context.getString(R.string.runlog_task_start, tasks.size),
+        successMessage = context.getString(R.string.runlog_task_started),
+        preflightLogs = preflightLogs,
         onSessionStarted = onSessionStarted,
     )
 
     suspend fun startCopilot(
         tasks: List<MaaTaskParams>,
-        clientType: String = taskChainState.getClientType()
+        clientType: String = taskChainState.clientType
     ): StartResult = executeStart(
         tasks = tasks,
         clientType = clientType,
-        startMessage = "开始执行自动战斗",
-        successMessage = "自动战斗开始运行",
+        startMessage = context.getString(R.string.runlog_copilot_start),
+        successMessage = context.getString(R.string.runlog_copilot_started),
     )
 
     private suspend fun failStart(
@@ -215,6 +281,7 @@ class MaaCompositionService(
         setRunState(MaaExecutionState.ERROR)
         sessionLogger.appendAndWait(message, LogLevel.ERROR)
         sessionLogger.endSessionAndWait(sessionStatus)
+        notificationCenter.notifyStartFailed(message)
         return result
     }
 
@@ -225,37 +292,80 @@ class MaaCompositionService(
         setRunState(MaaExecutionState.IDLE)
         sessionLogger.appendAndWait(message, LogLevel.WARNING)
         sessionLogger.endSessionAndWait(sessionStatus)
+        // 前置失败未进 STARTING；先 beginRun 刷新 token，否则 notifyStartFailed 会因旧 run 已 claim 结果而被吞
+        liveCoordinator.beginRun()
+        notificationCenter.notifyStartFailed(message)
         return result
     }
 
-    private suspend fun checkPreconditions(
-        mode: RunMode,
-        isScheduled: Boolean = false
-    ): StartResult? {
+    /**
+     * 启动前对齐资源档，必须早于 mute——换进程会让旧进程收尾时解除游戏静音
+     * 持 [startMutex] 挡住并发启动，加锁顺序与 [executeStart] 一致
+     * 失败交给 [checkPreconditions] 统一报错
+     */
+    suspend fun prepareResources(clientType: String) = startMutex.withLock {
+        // 换进程会杀掉虚拟显示器
+        when (_state.value) {
+            MaaExecutionState.IDLE, MaaExecutionState.ERROR -> Unit
+            else -> {
+                Timber.i("Skip resource prepare while busy: %s", _state.value)
+                return@withLock
+            }
+        }
+        // 可能在主线程调用，解绑是同步 binder 调用
+        withContext(Dispatchers.IO) {
+            resourceLoader.ensureLoaded(clientType)
+        }
+        Unit
+    }
+
+    private suspend fun checkPreconditions(mode: RunMode, clientType: String): StartResult? {
         // 服务连接中时直接拒绝，避免与后台自动 load() 并发触发 LoadResource
+        // 换进程重连是资源加载自己发起的，不算，交给 ensureLoaded 等它结束
         val serviceState = RemoteServiceManager.state.value
-        if (serviceState is RemoteServiceManager.ServiceState.Connecting) {
+        val resourceState = resourceLoader.state.value
+        val reconnectingForResource = resourceState is MaaResourceLoader.State.Loading ||
+                resourceState is MaaResourceLoader.State.Reloading
+        if (serviceState is RemoteServiceManager.ServiceState.Connecting && !reconnectingForResource) {
             return rejectStart(
-                "服务正在启动中，请稍后再试",
+                context.getString(R.string.runlog_service_connecting),
                 "SERVICE_CONNECTING",
                 StartResult.ServiceConnecting
             )
         }
 
-        activityManager.runIfDirty { resourceLoader.load() }
-        val loaded = resourceLoader.ensureLoaded()
+        val access = RemoteAccessCoordinator.refresh()
+        val backend = access.configuredBackend
+        if (!access.isAvailable(backend)) {
+            return rejectStart(
+                context.getString(R.string.runlog_backend_unavailable, backend.display),
+                "BACKEND_UNAVAILABLE",
+                StartResult.RemoteAccessUnavailable(backend)
+            )
+        }
+
+        activityManager.runIfDirty { resourceLoader.load(clientType) }
+        val loaded = resourceLoader.ensureLoaded(clientType)
         if (loaded.isFailure) {
-            return failStart(
-                "资源加载失败", "RESOURCE_ERROR",
+            return rejectStart(
+                context.getString(R.string.runlog_resource_load_failed), "RESOURCE_ERROR",
                 StartResult.ResourceError(loaded.exceptionOrNull())
             )
         }
-        if (mode == RunMode.FOREGROUND && !isScheduled) {
+        // 前台（含定时 / LAUNCH_PROFILE）必须横屏且 16:9；后台走虚拟屏自带 16:9
+        if (mode == RunMode.FOREGROUND) {
             val (width, height) = Misc.getScreenSize(context)
             if (height > width) {
-                return failStart(
-                    "当前为竖屏，无法在前台模式运行", "PORTRAIT",
+                return rejectStart(
+                    context.getString(R.string.runlog_portrait_orientation), "PORTRAIT",
                     StartResult.PortraitOrientationError
+                )
+            }
+            if (!Misc.isAspectRatio16x9(width, height)) {
+                return rejectStart(
+                    context.getString(R.string.runlog_invalid_aspect_ratio, width, height),
+                    "INVALID_ASPECT_RATIO",
+                    StartResult.InvalidAspectRatioError
                 )
             }
         }
@@ -266,13 +376,13 @@ class MaaCompositionService(
         if (maa.hasInstance()) return null
         if (!maa.CreateInstance(callback)) {
             return failStart(
-                "创建 MaaCore 实例失败", "CREATE_INSTANCE_ERROR",
+                context.getString(R.string.runlog_create_instance_failed), "CREATE_INSTANCE_ERROR",
                 StartResult.InitializationError(StartResult.InitializationError.InitPhase.CREATE_INSTANCE)
             )
         }
         if (!maa.SetInstanceOption(TOUCH_MODE, ANDROID)) {
             return failStart(
-                "设置触控模式失败", "SET_TOUCH_MODE_ERROR",
+                context.getString(R.string.runlog_set_touch_mode_failed), "SET_TOUCH_MODE_ERROR",
                 StartResult.InitializationError(StartResult.InitializationError.InitPhase.SET_TOUCH_MODE)
             )
         }
@@ -287,7 +397,7 @@ class MaaCompositionService(
         connectDeferred.set(null)
         if (ret != true) {
             return failStart(
-                "启动 MaaCore 超时或失败", "MAA_CONNECT_ERROR",
+                context.getString(R.string.runlog_maa_connect_failed), "MAA_CONNECT_ERROR",
                 StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.MAA_CONNECT)
             )
         }
@@ -299,17 +409,13 @@ class MaaCompositionService(
     ): StartResult? {
         if (!service.setVirtualDisplayMode(mode.displayMode))
             return failStart(
-                "设置显示模式失败", "DISPLAY_MODE_ERROR",
+                context.getString(R.string.runlog_display_mode_failed), "DISPLAY_MODE_ERROR",
                 StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.DISPLAY_MODE)
             )
         val config = when (mode) {
             RunMode.FOREGROUND -> {
                 val displayId = service.startVirtualDisplay()
-                if (displayId == -1)
-                    return failStart(
-                        "启动虚拟显示失败", "VIRTUAL_DISPLAY_ERROR",
-                        StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY)
-                    )
+                if (displayId == -1) return failVirtualDisplayStart()
                 val (w, h) = Misc.getScreenSize(context)
                 buildConnectConfig(w, h, displayId)
             }
@@ -317,22 +423,54 @@ class MaaCompositionService(
             RunMode.BACKGROUND -> {
                 val r = resolveAndSetResolution(service, clientType)
                 val displayId = service.startVirtualDisplay()
-                if (displayId == -1)
-                    return failStart(
-                        "启动虚拟显示失败", "VIRTUAL_DISPLAY_ERROR",
-                        StartResult.ConnectionError(StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY)
-                    )
+                if (displayId == -1) return failVirtualDisplayStart()
                 buildConnectConfig(r.width, r.height, displayId)
             }
         }
         // 在 MAA 连接（含 force_stop 重启游戏）之前提前授予电池优化豁免与后台不受限权限，
         // 让新进程一启动就处于受保护状态
-        taskChainState.grantGameBatteryExemption(clientType)
-        // 每次连接前同步「干员部署按住-暂停」开关 (对应 Core ControlFeat::SWIPE_WITH_PAUSE),
-        // 用户改了设置下次启动任务即生效
-        val pauseEnabled = appSettings.deploymentWithPause.value
-        maa.SetInstanceOption(DEPLOYMENT_WITH_PAUSE, if (pauseEnabled) "1" else "0")
+        grantGameBatteryExemption(clientType)
+        // Assistant 实例跨任务复用，关闭时必须显式写 0
+        maa.SetInstanceOption(
+            DEPLOYMENT_WITH_PAUSE,
+            if (appSettings.deployWithPause.value) "1" else "0"
+        )
         return asyncConnect(maa, config)
+    }
+
+    /** 虚拟显示启动失败；若是 Root 授权的 Shizuku（uid 0）则附加改用内置 Root 模式的提示 */
+    private suspend fun failVirtualDisplayStart(): StartResult {
+        val shizukuAsRoot =
+            RemoteServiceManager.connectedBackendOrNull() == RemoteBackend.SHIZUKU &&
+                    ShizukuManager.isRunningAsRoot()
+        val message = if (shizukuAsRoot) {
+            context.getString(R.string.runlog_virtual_display_failed_shizuku_as_root)
+        } else {
+            context.getString(R.string.runlog_virtual_display_failed)
+        }
+        return failStart(
+            message,
+            "VIRTUAL_DISPLAY_ERROR",
+            StartResult.ConnectionError(
+                StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY,
+                shizukuAsRoot = shizukuAsRoot,
+            )
+        )
+    }
+
+    private fun grantGameBatteryExemption(clientType: String) {
+        val pkg = Packages[clientType] ?: return
+        runCatching {
+            RemoteServiceManager.getInstanceOrNull()?.grantPermissions(
+                PermissionGrantRequest(
+                    packageName = pkg,
+                    permissions = PermissionGrantRequest.PERM_BATTERY or PermissionGrantRequest.PERM_BACKGROUND
+                )
+            )
+            Timber.d("Battery exemption granted for game: %s", pkg)
+        }.onFailure { e ->
+            Timber.w(e, "Failed to grant battery exemption for game")
+        }
     }
 
     private suspend fun appendTasksAndStart(
@@ -341,59 +479,113 @@ class MaaCompositionService(
         successMessage: String,
         mode: RunMode,
     ): StartResult {
+        // 独立目录：先投递用户文件，送不过去 core 那边就是 file-not-found，直接报资源错误
+        if (!coreDataPusher.pushUserData()) {
+            Timber.e("core user data push failed before start")
+            return StartResult.ResourceError(IllegalStateException("core user data push failed"))
+        }
         taskChainStatusTracker.clear()
+        // 不清 dropsRefresher：stage 已在 Analyze 完成，会话结束/下次 Analyze 再清
         tasks.forEach { t ->
             sessionLogger.appendToFileOnly("[TaskParams] ${t.type.value}: ${t.params}")
             val taskId = maa.AppendTask(t.type.value, t.params)
             if (taskId > 0) {
-                taskChainStatusTracker.register(taskId, t.type.value, t.nodeId)
+                taskChainStatusTracker.register(taskId, t.type.value, t.slot)
+                t.slot?.let { dropsRefresher.bind(it, taskId) }
             }
         }
         if (!maa.Start()) {
-            return failStart("MaaCore 启动失败", "START_ERROR", StartResult.StartError)
+            return failStart(
+                context.getString(R.string.runlog_maa_start_failed),
+                "START_ERROR",
+                StartResult.StartError
+            )
         }
         setRunState(MaaExecutionState.RUNNING)
         if (mode == RunMode.BACKGROUND) {
-            appWatchdog.startWatching()
+            startBackgroundMonitors()
         }
         sessionLogger.appendAndWait(successMessage, LogLevel.SUCCESS)
         return StartResult.Success(maa.GetVersion())
     }
+
+    /** 启动互斥：前置检查耗时，双入口/双击可能同时穿过 AlreadyRunning 窗口 */
+    private val startMutex = Mutex()
 
     private suspend fun executeStart(
         tasks: List<MaaTaskParams>,
         clientType: String,
         startMessage: String,
         successMessage: String,
-        isScheduled: Boolean = false,
+        preflightLogs: List<Pair<UiText, LogLevel>> = emptyList(),
+        onSessionStarted: (suspend () -> Unit)? = null,
+    ): StartResult = startMutex.withLock {
+        executeStartLocked(
+            tasks, clientType, startMessage, successMessage, preflightLogs, onSessionStarted,
+        )
+    }
+
+    private suspend fun executeStartLocked(
+        tasks: List<MaaTaskParams>,
+        clientType: String,
+        startMessage: String,
+        successMessage: String,
+        preflightLogs: List<Pair<UiText, LogLevel>> = emptyList(),
         onSessionStarted: (suspend () -> Unit)? = null,
     ): StartResult {
-        setRunState(MaaExecutionState.STARTING)
+        // 会话与日志先开；STARTING/FGS 必须在前置检查通过后再进入。
+        // 否则竖屏等快速失败会 stop 尚未 startForeground 的 FGS，触发
+        // ForegroundServiceDidNotStartInTimeException。
+        when (_state.value) {
+            MaaExecutionState.STARTING,
+            MaaExecutionState.RUNNING,
+            MaaExecutionState.STOPPING -> return StartResult.AlreadyRunning
+
+            MaaExecutionState.IDLE,
+            MaaExecutionState.ERROR -> Unit
+        }
+        val mode = appSettings.runMode.value
         sessionLogger.startSession(tasks.map { it.type.value })
         subTaskHandler.resetSessionState()
+        toolboxResultCollector.onSessionStart()
         onSessionStarted?.invoke()
         sessionLogger.appendAndWait(startMessage, LogLevel.INFO)
+        preflightLogs.forEach { (text, level) ->
+            sessionLogger.appendAndWait(text.resolve(context), level)
+        }
         sessionLogger.appendAndWait(fetchDeviceMemoryInfo(), LogLevel.INFO)
 
-        val mode = appSettings.runMode.value
         return withContext(Dispatchers.IO) {
-            checkPreconditions(mode, isScheduled)?.let { return@withContext it }
+            checkPreconditions(mode, clientType)?.let { return@withContext it }
 
-            useRemoteService { service ->
-                val maa = service.maaCoreService
-                ensureMaaInstance(maa)?.let { return@useRemoteService it }
+            setRunState(MaaExecutionState.STARTING)
 
-                setupDisplayAndConnect(
-                    service,
-                    maa,
-                    mode,
-                    clientType
-                )?.let { return@useRemoteService it }
-                val result = appendTasksAndStart(maa, tasks, successMessage, mode)
-                if (result is StartResult.Success) {
-                    taskChainState.saveLastUsedClientType(clientType)
+            try {
+                useRemoteService { service ->
+                    val maa = service.maaCoreService
+                    ensureMaaInstance(maa)?.let { return@useRemoteService it }
+
+                    setupDisplayAndConnect(
+                        service,
+                        maa,
+                        mode,
+                        clientType
+                    )?.let { return@useRemoteService it }
+                    val result = appendTasksAndStart(maa, tasks, successMessage, mode)
+                    if (result is StartResult.Success) {
+                        taskChainState.saveLastUsedClientType(clientType)
+                    }
+                    result
                 }
-                result
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to acquire remote service during start")
+                rejectStart(
+                    context.getString(R.string.runlog_remote_connect_failed, e.message ?: ""),
+                    "REMOTE_ACCESS_UNAVAILABLE",
+                    StartResult.RemoteAccessUnavailable(RemoteAccessCoordinator.configuredBackend())
+                )
             }
         }
     }
@@ -452,7 +644,7 @@ class MaaCompositionService(
 
     suspend fun stop(): StopResult {
         setRunState(MaaExecutionState.STOPPING)
-        sessionLogger.appendAndWait("正在停止任务...", LogLevel.INFO)
+        sessionLogger.appendAndWait(context.getString(R.string.runlog_task_stopping), LogLevel.INFO)
 
         return withContext(Dispatchers.IO) {
             useRemoteService { service ->
@@ -481,21 +673,45 @@ class MaaCompositionService(
         }
     }
 
-    private fun finishStop(result: StopResult): StopResult {
+    // 后台模式随会话启停的监视器：游戏存活/漂移看门狗、帧率
+    private fun startBackgroundMonitors() {
+        appWatchdog.startWatching()
+        gameFpsWatcher.start()
+    }
+
+    private fun stopBackgroundMonitors() {
         appWatchdog.stopWatching()
+        gameFpsWatcher.stop()
+    }
+
+    private fun finishStop(result: StopResult): StopResult {
+        stopBackgroundMonitors()
         setRunState(MaaExecutionState.IDLE)
         val status = if (result is StopResult.Success) "STOPPED" else "STOP_FAILED"
         sessionLogger.append(
-            "任务停止，状态: $status",
+            context.getString(R.string.runlog_task_stopped, status),
             if (result is StopResult.Success) LogLevel.INFO else LogLevel.ERROR
         )
         sessionLogger.endSession(status)
+        notificationCenter.notifyTaskStopped()
         return result
     }
 
     suspend fun stopVirtualDisplay() {
-        appWatchdog.stopWatching()
-        _displayResolution.value = defaultResolution
-        useRemoteService { it.stopVirtualDisplay() }
+        try {
+            stopBackgroundMonitors()
+            _displayResolution.value = defaultResolution
+            withContext(Dispatchers.IO) {
+                val service = RemoteServiceManager.getInstanceOrNull()
+                    ?: return@withContext
+                service.stopVirtualDisplay()
+            }
+        } finally {
+            withContext(NonCancellable) {
+                if (!gameMuteCoordinator.unmute()) {
+                    Timber.w("Virtual display close did not restore managed game audio; retry pending")
+                }
+            }
+        }
     }
 }

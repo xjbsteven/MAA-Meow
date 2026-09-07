@@ -38,13 +38,15 @@ fun BottomButtons(
     ) {
         OutlinedButton(
             onClick = onClose,
-            modifier = Modifier.weight(1f).height(36.dp),
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp),
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             enabled = !isStarting,
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = MaaThemeAlphas.Disabled)
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = MaaThemeAlphas.DISABLED)
             )
         ) {
             Text(stringResource(R.string.panel_bottom_hide))
@@ -54,13 +56,15 @@ fun BottomButtons(
 
         Button(
             onClick = onStart,
-            modifier = Modifier.weight(1f).height(36.dp),
+            modifier = Modifier
+                .weight(1f)
+                .height(36.dp),
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             enabled = !isStarting,
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
-                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = MaaThemeAlphas.Disabled)
+                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = MaaThemeAlphas.DISABLED)
             )
         ) {
             if (isStarting) {

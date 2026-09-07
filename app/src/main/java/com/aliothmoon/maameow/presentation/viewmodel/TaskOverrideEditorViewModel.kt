@@ -3,8 +3,12 @@ package com.aliothmoon.maameow.presentation.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.alibaba.fastjson2.JSON
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.config.MaaPathConfig
 import com.aliothmoon.maameow.domain.service.MaaResourceLoader
+import com.aliothmoon.maameow.utils.i18n.UiText
+import com.aliothmoon.maameow.utils.i18n.uiTextDynamicOr
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,7 +28,7 @@ class TaskOverrideEditorViewModel(
         data object Idle : SaveState()
         data object Saving : SaveState()
         data object Success : SaveState()
-        data class Error(val message: String) : SaveState()
+        data class Error(val text: UiText) : SaveState()
     }
 
     private val _editorText = MutableStateFlow("{}")
@@ -59,7 +63,7 @@ class TaskOverrideEditorViewModel(
     fun onSave() {
         val content = _editorText.value
         if (!JSON.isValid(content)) {
-            _saveState.value = SaveState.Error("JSON invalid")
+            _saveState.value = SaveState.Error(uiTextOf(R.string.task_override_error_json_invalid))
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -68,13 +72,15 @@ class TaskOverrideEditorViewModel(
                 val dest = pathConfig.overrideTasksFile
                 dest.parentFile?.mkdirs()
                 dest.writeText(content)
-                resourceLoader.reset()
+                resourceLoader.invalidate()
                 Timber.i("覆盖文件已保存: ${dest.absolutePath}")
             }.fold(
                 onSuccess = { _saveState.value = SaveState.Success },
                 onFailure = {
                     Timber.e(it, "覆盖文件保存失败")
-                    _saveState.value = SaveState.Error(it.message ?: "保存失败")
+                    _saveState.value = SaveState.Error(
+                        uiTextDynamicOr(it.message, R.string.task_override_error_save_failed)
+                    )
                 }
             )
         }

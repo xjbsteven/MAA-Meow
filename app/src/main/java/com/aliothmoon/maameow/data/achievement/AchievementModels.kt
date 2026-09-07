@@ -207,7 +207,16 @@ object AchievementIds {
     const val SANITY_PLANNER = "SanityPlanner"
     const val WAREHOUSE_KEEPER = "WarehouseKeeper"
     const val PALLAS_STARTER = "PallasStarter"
+
+    /** 点击成就设置区帕拉斯头像（牛牛喝酒） */
+    const val PALLAS_CHEERS = "PallasCheers"
+
+    /** 同意牛牛抽卡风险提示（对齐 WPF RealGacha）。 */
+    const val REAL_GACHA = "RealGacha"
     const val SLACKING_OFF = "SlackingOff"
+
+    /** 公告未读完狂点确认 20+ 次（对齐 WPF AnnouncementStubbornClick） */
+    const val ANNOUNCEMENT_STUBBORN_CLICK = "AnnouncementStubbornClick"
 }
 
 object AchievementEvents {
@@ -233,6 +242,7 @@ object AchievementEvents {
     const val UPDATE_FAILED = "update_failed"
     const val TOOLBOX_RESULT = "toolbox_result"
     const val MINI_GAME_STARTED = "mini_game_started"
+    const val ANNOUNCEMENT_STUBBORN_CLICK = "announcement_stubborn_click"
     const val LOG_EXPORTED = "log_exported"
     const val NOTIFICATION_PROVIDER_STATE = "notification_provider_state"
     const val FEEDBACK_GROUP_OPENED = "feedback_group_opened"

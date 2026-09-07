@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.view.panel.mall
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
@@ -26,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aliothmoon.maameow.R
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 
 @Composable
 fun PriorityItemRow(
@@ -63,7 +63,7 @@ fun PriorityItemRow(
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            AnimatedVisibility(
+            MaaAnimatedVisibility(
                 visible = isReorderMode,
                 enter = fadeIn(),
                 exit = fadeOut() + shrinkHorizontally()
@@ -88,7 +88,7 @@ fun PriorityItemRow(
                 modifier = Modifier.weight(1f)
             )
 
-            AnimatedVisibility(visible = !isReorderMode) {
+            MaaAnimatedVisibility(visible = !isReorderMode) {
                 IconButton(
                     onClick = onRemove,
                     enabled = enabled && !isDragging,

@@ -1,5 +1,5 @@
 <div align="center">
-<img alt="LOGO" src="/docs/Logo.png" width="256" height="256" />
+<img alt="LOGO" src="/docs/zh-cn/develop/Logo.png" width="256" height="256" />
 
 # MAA Meow 
 
@@ -12,7 +12,7 @@
 [![GitHub Stars](https://img.shields.io/github/stars/Aliothmoon/MAA-Meow?style=flat-square)](https://github.com/Aliothmoon/MAA-Meow/stargazers)
 [![GitHub Downloads](https://img.shields.io/github/downloads/Aliothmoon/MAA-Meow/total?style=flat-square&label=Downloads)](https://github.com/Aliothmoon/MAA-Meow/releases)
 
-[下载最新版](https://github.com/Aliothmoon/MAA-Meow/releases/latest) · [问题反馈](https://github.com/Aliothmoon/MAA-Meow/issues) · [QQ 交流群](https://qm.qq.com/q/j4CFbeDQXu)
+[下载最新版](https://github.com/Aliothmoon/MAA-Meow/releases/latest) · [常见问题](https://docs.maameow.com/faq/getting-started/) · [问题反馈](https://github.com/Aliothmoon/MAA-Meow/issues) · [QQ 交流群](https://join.maameow.com/)
 
 **[English](README_EN.md)** | **中文**
 
@@ -23,10 +23,10 @@
 > 无需 Root 权限，明日方舟可后台！正在开发中，功能不稳定，欢迎尝鲜体验～
 
 <p align="center">
-  <img src="docs/screenshots/home.png" width="200" />
-  <img src="docs/screenshots/background_task.png" width="200" />
-  <img src="docs/screenshots/schedule.png" width="200" />
-  <img src="docs/screenshots/auto_controls.png" width="200" />
+  <img src="docs/zh-cn/manual/screenshots/home.png" width="200" />
+  <img src="docs/zh-cn/manual/screenshots/background_task.png" width="200" />
+  <img src="docs/zh-cn/manual/screenshots/schedule.png" width="200" />
+  <img src="docs/zh-cn/manual/screenshots/auto_controls.png" width="200" />
 </p>
 
 ## 特性
@@ -51,11 +51,11 @@
 
 | 文档 | 说明 |
 |---|---|
-| [构建指南](docs/BUILDING.md) | 从源码构建 APK |
-| [外部自动化集成](docs/AUTOMATION.md) | 通过 Intent / am 命令与 MacroDroid、Tasker 联动 |
-| [Roadmap](docs/ROADMAP.md) | 功能规划与进度 |
-| [PR 规范](docs/PULL_REQUEST_GUIDELINES.md) | 提交 PR 前的标题、描述、验证与评审约定 |
-| [第三方代码声明](docs/THIRD_PARTY_NOTICES.md) | 引用的开源组件及许可证 |
+| [构建指南](docs/zh-cn/develop/BUILDING.md) | 从源码构建 APK |
+| [外部自动化集成](docs/zh-cn/develop/AUTOMATION.md) | 通过 Intent / am 命令与 MacroDroid、Tasker 联动 |
+| [Roadmap](docs/zh-cn/develop/ROADMAP.md) | 功能规划与进度 |
+| [PR 规范](docs/zh-cn/develop/PULL_REQUEST_GUIDELINES.md) | 提交 PR 前的标题、描述、验证与评审约定 |
+| [第三方代码声明](docs/zh-cn/develop/THIRD_PARTY_NOTICES.md) | 引用的开源组件及许可证 |
 
 ## 参与贡献
 
@@ -68,8 +68,8 @@
 5. 发起 Pull Request
 
 > 提交信息请遵循 [Conventional Commits](https://www.conventionalcommits.org/) 规范（`feat:`、`fix:`、`docs:` 等）。
-> 首次构建请参阅 [构建指南](docs/BUILDING.md)。
-> 提交 PR 前请阅读 [PR 规范](docs/PULL_REQUEST_GUIDELINES.md)。
+> 首次构建请参阅 [构建指南](docs/zh-cn/develop/BUILDING.md)。
+> 提交 PR 前请阅读 [PR 规范](docs/zh-cn/develop/PULL_REQUEST_GUIDELINES.md)。
 
 如果觉得项目有用，欢迎点一个 Star ⭐ 让更多人看到！
 
@@ -81,4 +81,4 @@
 
 ## 许可证
 
-本项目以 [AGPL-3.0](LICENSE) 许可证发布。第三方代码保留其原始许可证，详见[第三方代码声明](docs/THIRD_PARTY_NOTICES.md)。
+本项目以 [AGPL-3.0](LICENSE) 许可证发布。第三方代码保留其原始许可证，详见[第三方代码声明](docs/zh-cn/develop/THIRD_PARTY_NOTICES.md)。

@@ -13,7 +13,7 @@ public final class RootServiceBootstrapClient {
     private RootServiceBootstrapClient() {
     }
 
-    public static IBinder attachRemoteService(String packageName, int userId, String token, IBinder serviceBinder) {
+    public static BootstrapResult attachRemoteService(String packageName, int userId, String token, IBinder serviceBinder) {
         String authority = packageName + RootServiceBootstrapRegistry.AUTHORITY_SUFFIX;
         IBinder providerToken = new Binder();
         IContentProvider provider = null;
@@ -59,8 +59,9 @@ public final class RootServiceBootstrapClient {
                 System.err.println("[BootstrapClient] app lifecycle binder missing or dead");
                 return null;
             }
-            System.err.println("[BootstrapClient] lifecycle binder received ok");
-            return lifecycleBinder;
+            int appPid = reply.getInt(RootServiceBootstrapRegistry.KEY_APP_PID, 0);
+            System.err.println("[BootstrapClient] lifecycle binder received ok, appPid=" + appPid);
+            return new BootstrapResult(lifecycleBinder, appPid);
         } catch (Throwable tr) {
             Ln.e("Failed to send binder back to app", tr);
             System.err.println("[BootstrapClient] exception: " + tr);
@@ -71,5 +72,11 @@ public final class RootServiceBootstrapClient {
                 ServiceManager.getActivityManager().removeContentProviderExternal(authority, providerToken);
             }
         }
+    }
+
+    /**
+     * 握手结果：app 生命周期 binder 与 app 进程 pid
+     */
+    public record BootstrapResult(IBinder lifecycleBinder, int appPid) {
     }
 }

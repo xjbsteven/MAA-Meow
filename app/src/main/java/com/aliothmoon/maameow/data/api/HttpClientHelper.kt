@@ -4,6 +4,7 @@ import com.aliothmoon.maameow.utils.JsonUtils
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -15,9 +16,14 @@ class HttpClientHelper(
 ) {
     companion object {
         val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        const val CONTENT_TYPE = "Content-Type"
     }
 
 
+    /**
+     * 不要在 [headers] 里传 Accept-Encoding：那会关掉 OkHttp 的透明 gzip，
+     * 服务端随之把 ETag 在强/弱之间切换，api2.maa.plus 会静默退化成每次全量下载
+     */
     suspend fun get(
         url: String,
         query: Map<String, String?> = emptyMap(),
@@ -54,12 +60,25 @@ class HttpClientHelper(
         }
     }
 
+    /**
+     * [headers] 里的 Content-Type 会被拿来当请求体的 media type：
+     * OkHttp 的 BridgeInterceptor 在请求体 contentType 非空时会无条件覆盖同名请求头，
+     * 单纯 header("Content-Type", ...) 会被静默丢掉
+     */
     suspend fun post(
         url: String,
         body: String,
         query: Map<String, String?> = emptyMap(),
         headers: Map<String, String> = emptyMap()
     ): Response {
+        val contentTypeEntry = headers.entries
+            .firstOrNull { it.key.equals(CONTENT_TYPE, ignoreCase = true) }
+        val mediaType = contentTypeEntry?.value?.toMediaTypeOrNull()
+            ?: JSON_MEDIA_TYPE.also {
+                if (contentTypeEntry != null) {
+                    Timber.w("Content-Type 无法解析，按 JSON 发送: %s", contentTypeEntry.value)
+                }
+            }
         val request = Request.Builder().apply {
             val requestUrl = url.toHttpUrl().run {
                 if (query.isEmpty()) {
@@ -74,8 +93,10 @@ class HttpClientHelper(
                 }
             }
             url(requestUrl)
-        }.apply { headers.forEach { (k, v) -> header(k, v) } }
-            .post(body.toRequestBody(JSON_MEDIA_TYPE)).build()
+        }.apply {
+            headers.forEach { (k, v) -> if (k != contentTypeEntry?.key) header(k, v) }
+        }
+            .post(body.toRequestBody(mediaType)).build()
         return okHttpClient.newCall(request).await()
     }
 

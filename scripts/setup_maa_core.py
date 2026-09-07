@@ -9,6 +9,7 @@ usage:
     python scripts/setup_maa_core.py                    # download latest release and deploy
     python scripts/setup_maa_core.py --tag v6.3.0       # download specific tag
     python scripts/setup_maa_core.py --skip-download     # deploy from cache only
+    python scripts/setup_maa_core.py --maafw-tag v5.13.0-beta.5  # override the MaaFramework control unit
 
 Note: target directories (assets/MaaSync/MaaResource and jniLibs/<abi>/<MAA *.so>)
 are always cleaned before deploy to avoid stale files from previous versions.
@@ -24,7 +25,10 @@ import sys
 import tarfile
 import urllib.request
 import urllib.error
+import zipfile
 from pathlib import Path
+
+import convert_ocr_ncnn
 
 # Fix Windows console encoding
 if sys.platform == "win32":
@@ -41,17 +45,32 @@ ABI_MAP = {
     "android-x64": "x86_64",
 }
 
-# Excluded from jniLibs copy
-EXCLUDE_SO = {"libc++_shared.so"}
+# Excluded from jniLibs copy.
+# - libc++_shared.so: provided by the NDK toolchain, never ship MAA's copy.
+# - libfastdeploy_ppocr.so: desktop OCR backend; Android uses OcrPackNcnn driven
+#   by the ncnn weights generated in convert_ocr_ncnn.py, so this ~tens-of-MB
+#   so is dead weight in the APK.
+EXCLUDE_SO = {"libc++_shared.so", "libfastdeploy_ppocr.so"}
 
 # Ignored file extensions
 IGNORE_EXTENSIONS = {".h"}
+
+# MAA CI bundles libMaaAndroidNativeControlUnit.so from MaaFramework's *latest stable*
+# release, which can lag features the app relies on (e.g. multi-touch landed in
+# v5.13.0-beta.3). --maafw-tag swaps in the control unit from a chosen MaaFramework tag.
+MAAFW_REPO = "MaaXYZ/MaaFramework"
+MAAFW_CONTROL_UNIT_SO = "libMaaAndroidNativeControlUnit.so"
+MAAFW_ASSET_ARCH = {"arm64-v8a": "aarch64", "x86_64": "x86_64"}
 
 # Target paths (relative to project root)
 ASSETS_RESOURCE_DIR = "app/src/main/assets/MaaSync/MaaResource"
 JNILIBS_DIR = "app/src/main/jniLibs"
 CACHE_DIR = ".maa-cache"
 VERSION_FILE = ".maaversion"
+
+# Echo extraction progress every N files; ~9000 files per tarball takes tens of
+# seconds and a silent run is indistinguishable from a hang
+EXTRACT_PROGRESS_STEP = 500
 
 # Extract version from tarball name, e.g. MAAComponent-v6.12.0-beta.2-android-arm64.tar.gz
 TARBALL_VERSION_RE = re.compile(r"-(v\d+\.\d+\.\d+(?:-[A-Za-z0-9.]+)?)-android-")
@@ -126,11 +145,12 @@ def download_file(url: str, dest: Path):
         print()
 
 
-def get_release_assets(tag: str = None) -> list:
+def get_release_assets(tag: str = None, repo: str = None) -> list:
+    base = f"https://api.github.com/repos/{repo}" if repo else API_BASE
     if tag:
-        url = f"{API_BASE}/releases/tags/{tag}"
+        url = f"{base}/releases/tags/{tag}"
     else:
-        url = f"{API_BASE}/releases/latest"
+        url = f"{base}/releases/latest"
     print(f"[FETCH] Fetching release info: {url}")
     try:
         data = fetch_json(url)
@@ -175,10 +195,17 @@ def extract_and_deploy(tarball: Path, abi: str, project_root: Path):
     stats = {"resource": 0, "so": 0, "skipped": 0}
 
     print(f"  [EXTRACT] {tarball.name} -> {abi}")
+    seen = 0
+    # Iterate lazily instead of getmembers(): that pre-scans the whole archive
+    # before writing a single file, which looks like a hang on a 180MB tarball
     with tarfile.open(tarball, "r:gz") as tar:
-        for member in tar.getmembers():
+        for member in tar:
             if not member.isfile():
                 continue
+
+            seen += 1
+            if seen % EXTRACT_PROGRESS_STEP == 0:
+                print(f"\r    extracting... {seen} files", end="", flush=True)
 
             name = Path(member.name).name
             parts = Path(member.name).parts
@@ -214,8 +241,90 @@ def extract_and_deploy(tarball: Path, abi: str, project_root: Path):
 
             stats["skipped"] += 1
 
+    if seen >= EXTRACT_PROGRESS_STEP:
+        print()
     print(f"    resource: {stats['resource']} files, so: {stats['so']} files, skipped: {stats['skipped']}")
     return stats
+
+
+def override_maafw_control_unit(tag: str, target_abis: list, cache_dir: Path, project_root: Path,
+                                skip_download: bool):
+    print(f"\n[MAAFW] Overriding {MAAFW_CONTROL_UNIT_SO} with MaaFramework {tag}...")
+    # Same cache rule as the MAA tarballs: reuse only when the size matches the release asset
+    assets = {}
+    if not skip_download:
+        _, release_assets = get_release_assets(tag, repo=MAAFW_REPO)
+        assets = {a["name"]: a for a in release_assets}
+    for abi in target_abis:
+        name = f"MAA-android-{MAAFW_ASSET_ARCH[abi]}-{tag}.zip"
+        archive = cache_dir / name
+        info = assets.get(name)
+        if not skip_download and info is None:
+            print(f"[ERROR] {name} not found in {MAAFW_REPO} release {tag}")
+            sys.exit(1)
+        if archive.exists() and (info is None or archive.stat().st_size == info["size"]):
+            print(f"  [CACHE] {name} already exists, skipping download")
+        elif skip_download:
+            print(f"[ERROR] {name} not in cache and --skip-download given")
+            sys.exit(1)
+        else:
+            download_file(info["browser_download_url"], archive)
+        with zipfile.ZipFile(archive) as zf:
+            data = zf.read(f"bin/{MAAFW_CONTROL_UNIT_SO}")
+        dest = project_root / JNILIBS_DIR / abi / MAAFW_CONTROL_UNIT_SO
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(data)
+        print(f"  [OVERRIDE] {abi}/{MAAFW_CONTROL_UNIT_SO} <- {name} ({len(data) / (1024 * 1024):.1f} MB)")
+
+
+def _version_sort_key(version: str):
+    """Order tags like v6.17.0-beta.9 < v6.17.0-beta.10 < v6.17.0."""
+    m = re.match(r"v(\d+)\.(\d+)\.(\d+)(?:-(.+))?$", version)
+    if not m:
+        return ((0, 0, 0), 0, ())
+    core = tuple(int(x) for x in m.group(1, 2, 3))
+    pre = m.group(4)
+    if not pre:
+        return (core, 1, ())
+    parts = tuple((0, int(p), "") if p.isdigit() else (1, 0, p)
+                  for p in re.split(r"[.-]", pre))
+    return (core, 0, parts)
+
+
+def select_deploy_tarballs(cache_dir: Path, target_abis: list, wanted_version: str = None):
+    """Pick the cached tarballs of exactly one version.
+
+    The cache accumulates every version ever fetched. Deploying more than one
+    resurrects files that upstream has since moved, renamed or deleted -- the
+    newest extraction overwrites shared paths but never removes the extras, and
+    MaaCore rejects the whole resource dir when a template basename shows up in
+    two directories.
+    """
+    by_version = {}
+    for tarball in sorted(cache_dir.glob("*.tar.gz")):
+        m = TARBALL_VERSION_RE.search(tarball.name)
+        if not m:
+            continue
+        for keyword, abi in ABI_MAP.items():
+            if keyword in tarball.name and abi in target_abis:
+                by_version.setdefault(m.group(1), []).append((tarball, abi))
+
+    if not by_version:
+        return None, []
+
+    if wanted_version and wanted_version in by_version:
+        version = wanted_version
+    elif wanted_version:
+        print(f"[ERROR] No cached tarball for {wanted_version}; run without --skip-download")
+        sys.exit(1)
+    else:
+        version = max(by_version, key=_version_sort_key)
+        print(f"  [CACHE] No tag given, using newest cached version: {version}")
+
+    skipped = sum(len(v) for k, v in by_version.items() if k != version)
+    if skipped:
+        print(f"  [SKIP] Ignoring {skipped} cached tarball(s) from other versions")
+    return version, by_version[version]
 
 
 def write_version_file(version: str, project_root: Path):
@@ -234,6 +343,15 @@ def main():
     parser.add_argument("--skip-download", "-s", action="store_true", help="Skip download, use cache")
     parser.add_argument("--abi", choices=["arm64-v8a", "x86_64", "all"], default="all",
                         help="Process only specified ABI (default: all)")
+    parser.add_argument("--maafw-tag",
+                        help=f"Replace {MAAFW_CONTROL_UNIT_SO} with the one from this MaaFramework "
+                             "release tag (e.g. v5.13.0-beta.5); default keeps MAA's bundled copy")
+    parser.add_argument("--skip-ncnn", action="store_true",
+                        help="Skip OCR onnx->ncnn conversion (Android OCR needs ncnn; debug only)")
+    parser.add_argument("--keep-onnx", action="store_true",
+                        help="Keep OCR inference.onnx after conversion (default: delete, ~72MB unused on Android)")
+    parser.add_argument("--rec-fp16", action="store_true",
+                        help="Store rec ncnn weights as fp16 (smaller APK; det always stays fp32)")
     args = parser.parse_args()
 
     global API_BASE
@@ -253,6 +371,7 @@ def main():
         shutil.rmtree(assets_dir)
 
     target_abis = list(ABI_MAP.values()) if args.abi == "all" else [args.abi]
+    tag_name = args.tag if args.tag and args.tag != "latest" else None
 
     if not args.skip_download:
         tag_name, assets = get_release_assets(args.tag)
@@ -282,26 +401,41 @@ def main():
 
     # Deploy
     print(f"\n[DEPLOY] Deploying artifacts...")
-    resource_deployed = False
-    deployed_version = None
-    for tarball in sorted(cache_dir.glob("*.tar.gz")):
-        for keyword, abi in ABI_MAP.items():
-            if keyword in tarball.name and abi in target_abis:
-                extract_and_deploy(tarball, abi, project_root)
-                resource_deployed = True
-                m = TARBALL_VERSION_RE.search(tarball.name)
-                if m:
-                    deployed_version = m.group(1)
+    deployed_version, tarballs = select_deploy_tarballs(cache_dir, target_abis, tag_name)
 
-    if not resource_deployed:
+    if not tarballs:
         print("[ERROR] No tar.gz files found in cache. Run without --skip-download first.")
         sys.exit(1)
+
+    for tarball, abi in tarballs:
+        extract_and_deploy(tarball, abi, project_root)
+
+    if args.maafw_tag:
+        override_maafw_control_unit(args.maafw_tag, target_abis, cache_dir, project_root,
+                                    args.skip_download)
 
     # Record deployed MAA Core version for the Gradle build (BuildConfig.MAA_CORE_VERSION)
     if deployed_version:
         write_version_file(deployed_version, project_root)
     else:
         print(f"[WARN] Could not parse version from tarball name, {VERSION_FILE} not updated")
+
+    # Convert OCR onnx -> ncnn in place. Android (OcrPackNcnn) needs ncnn; doing it here,
+    # from the just-deployed onnx, keeps ncnn always in lockstep with the onnx/keys it
+    # ships with, so the Android-only ncnn never has to live in MAA's shared resource.
+    if not args.skip_ncnn:
+        print("\n[NCNN] Converting OCR onnx -> ncnn (Android-only)...")
+        ncnn_cache = cache_dir / "ncnn"
+        stats = convert_ocr_ncnn.convert_tree(
+            resource_dir=assets_dir,
+            cache_dir=ncnn_cache,
+            keep_onnx=args.keep_onnx,
+            rec_fp16=args.rec_fp16,
+        )
+        print(f"[NCNN] converted={stats['converted']} cached={stats['cached']} "
+              f"onnx_removed={stats['onnx_removed']} skipped={stats['skipped']}")
+    else:
+        print("\n[SKIP] Skipping OCR ncnn conversion (--skip-ncnn)")
 
     # Summary
     print("\n" + "=" * 55)

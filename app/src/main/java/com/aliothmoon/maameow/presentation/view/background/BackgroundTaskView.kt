@@ -1,44 +1,50 @@
 package com.aliothmoon.maameow.presentation.view.background
 
 import android.app.Activity
-import android.content.res.Configuration
 import android.content.pm.ActivityInfo
-
+import android.content.res.Configuration
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.aspectRatio
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.NotificationsPaused
+import androidx.compose.material.icons.filled.PowerSettingsNew
+import androidx.compose.material.icons.filled.Screenshot
+import androidx.compose.material.icons.filled.StayCurrentPortrait
+import androidx.compose.material.icons.filled.TouchApp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -60,19 +66,32 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.movableContentOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.changedToDownIgnoreConsumed
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChangedIgnoreConsumed
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -81,68 +100,75 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.constant.DefaultDisplayConfig
+import com.aliothmoon.maameow.data.preferences.AppSettingsManager
+import com.aliothmoon.maameow.domain.models.RunMode
+import com.aliothmoon.maameow.domain.service.AppWatchdog
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.service.UnifiedStateDispatcher
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
 import com.aliothmoon.maameow.manager.PermissionManager
+import com.aliothmoon.maameow.overlay.screensaver.ScreenSaverOverlayManager
+import com.aliothmoon.maameow.presentation.LocalInputFocusManager
 import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
-import com.aliothmoon.maameow.presentation.components.ShizukuPermissionDialog
-import com.aliothmoon.maameow.presentation.view.panel.PanelHeader
+import com.aliothmoon.maameow.presentation.components.LogExportController
+import com.aliothmoon.maameow.presentation.components.MaaWindowInsets
+import com.aliothmoon.maameow.presentation.components.ShizukuReadinessGate
+import com.aliothmoon.maameow.presentation.navigation.BottomNavTab
+import com.aliothmoon.maameow.presentation.onboarding.LocalOnboardingState
+import com.aliothmoon.maameow.presentation.onboarding.OnboardingTarget
+import com.aliothmoon.maameow.presentation.onboarding.onboardingBlocksStartupDialogs
+import com.aliothmoon.maameow.presentation.onboarding.onboardingTarget
+import com.aliothmoon.maameow.presentation.pip.LocalIsInPip
+import com.aliothmoon.maameow.presentation.pip.PipController
+import com.aliothmoon.maameow.presentation.pip.PipHost
+import com.aliothmoon.maameow.presentation.pip.PipRequest
+import com.aliothmoon.maameow.presentation.state.PreviewPointerSlots
+import com.aliothmoon.maameow.presentation.view.panel.AutoBattlePanel
+import com.aliothmoon.maameow.presentation.view.panel.LocalToolboxFileExporter
 import com.aliothmoon.maameow.presentation.view.panel.LogPanel
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogType
+import com.aliothmoon.maameow.presentation.view.panel.PanelHeader
 import com.aliothmoon.maameow.presentation.view.panel.PanelTab
-import com.aliothmoon.maameow.presentation.view.panel.TaskConfigPanel
-import com.aliothmoon.maameow.presentation.view.panel.TaskListPanel
-import com.aliothmoon.maameow.presentation.view.panel.AutoBattlePanel
+import com.aliothmoon.maameow.presentation.view.panel.TaskListDetailLayout
+import com.aliothmoon.maameow.presentation.view.panel.ToolboxPanel
+import com.aliothmoon.maameow.presentation.view.panel.rememberSafToolboxFileExporter
 import com.aliothmoon.maameow.presentation.viewmodel.BackgroundTaskViewModel
-import com.aliothmoon.maameow.utils.i18n.remoteBackendPermissionLabel
 import com.aliothmoon.maameow.presentation.viewmodel.CopilotViewModel
+import com.aliothmoon.maameow.presentation.viewmodel.ToolboxTab
 import com.aliothmoon.maameow.presentation.viewmodel.ToolboxViewModel
-import com.aliothmoon.maameow.data.preferences.AppSettingsManager
-import androidx.compose.ui.input.pointer.PointerEventType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.unit.Dp
-import com.aliothmoon.maameow.domain.service.AppWatchdog
-import com.aliothmoon.maameow.overlay.screensaver.ScreenSaverOverlayManager
+import com.aliothmoon.maameow.theme.LocalReduceMotion
+import com.aliothmoon.maameow.theme.MaaMotion
+import com.aliothmoon.maameow.theme.MaaThemeAlphas
 import com.aliothmoon.maameow.utils.i18n.asString
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 import timber.log.Timber
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.NotificationsPaused
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.Screenshot
-import androidx.compose.material.icons.filled.StayCurrentPortrait
-import androidx.compose.material.icons.filled.TouchApp
-import androidx.compose.ui.graphics.vector.ImageVector
-
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
-import com.aliothmoon.maameow.presentation.view.panel.ToolboxPanel
-import com.aliothmoon.maameow.presentation.view.panel.LocalToolboxFileExporter
-import com.aliothmoon.maameow.presentation.view.panel.rememberSafToolboxFileExporter
+import kotlin.math.roundToInt
 
 @Composable
 fun BackgroundTaskView(
-    onFullscreenChanged: (Boolean) -> Unit = {},
     viewModel: BackgroundTaskViewModel,
+    /** 子页面盖上来时 MainScreen 用 alpha 0 保活组合树，本页仍在组合但看不见，此时不能开画中画 */
+    isActivePage: Boolean = true,
     copilotViewModel: CopilotViewModel = koinInject(),
     toolboxViewModel: ToolboxViewModel = koinInject(),
     compositionService: MaaCompositionService = koinInject(),
     dispatcher: UnifiedStateDispatcher = koinInject(),
-    permissionManager: PermissionManager = koinInject(),
     screenSaverManager: ScreenSaverOverlayManager = koinInject(),
     appWatchdog: AppWatchdog = koinInject(),
+    appSettingsManager: AppSettingsManager = koinInject(),
+    permissionManager: PermissionManager = koinInject(),
 ) {
 
     val coroutineScope = rememberCoroutineScope()
     val state by viewModel.state.collectAsStateWithLifecycle()
     val maaState by compositionService.state.collectAsStateWithLifecycle()
+    val runMode by appSettingsManager.runMode.collectAsStateWithLifecycle()
+    val permissionState by permissionManager.state.collectAsStateWithLifecycle()
     val markers by viewModel.markers.collectAsStateWithLifecycle()
     val displayResolution by compositionService.displayResolution.collectAsStateWithLifecycle()
-    val permissions by permissionManager.state.collectAsStateWithLifecycle()
+    val pipOnHome by appSettingsManager.pipOnHome.collectAsStateWithLifecycle()
     val isChainLoaded by viewModel.chainState.isLoaded.collectAsStateWithLifecycle()
     var hasInitialized by rememberSaveable { mutableStateOf(false) }
     if (isChainLoaded) {
@@ -152,19 +178,36 @@ fun BackgroundTaskView(
 
     var showCloseConfirm by remember { mutableStateOf(false) }
     var showMoreActions by remember { mutableStateOf(false) }
+    var showLogExportSheet by remember { mutableStateOf(false) }
+    LogExportController(
+        sheetVisible = showLogExportSheet,
+        onSheetDismiss = { showLogExportSheet = false },
+    )
 
     val copilotDialog by copilotViewModel.dialog.collectAsStateWithLifecycle()
     val toolboxDialog by toolboxViewModel.dialog.collectAsStateWithLifecycle()
     val nodes by viewModel.chainState.chain.collectAsStateWithLifecycle()
     val profiles by viewModel.chainState.profiles.collectAsStateWithLifecycle()
-    val activeProfileId by viewModel.chainState.activeProfileId.collectAsStateWithLifecycle()
+    val profileId by viewModel.chainState.profileId.collectAsStateWithLifecycle()
     val selectedNode = nodes.find { it.id == state.selectedNodeId }
+    val clientType = remember(nodes) { viewModel.chainState.clientType }
     val canShowTaskActions = PanelTab.canShowTaskActions(state.current)
 
+    // 引导靶点在任务面板，重看时先切回去
+    val onboarding = LocalOnboardingState.current
+    val onboardingOnThisPage by remember(onboarding) {
+        derivedStateOf {
+            onboarding?.active == true && onboarding.currentStep.tab == BottomNavTab.BACKGROUND
+        }
+    }
+    LaunchedEffect(onboardingOnThisPage) {
+        if (onboardingOnThisPage && state.current != PanelTab.TASKS) {
+            viewModel.onTabChange(PanelTab.TASKS)
+        }
+    }
+
     val pagerState = rememberPagerState(
-        initialPage = state.current.ordinal,
-        pageCount = { PanelTab.entries.size }
-    )
+        initialPage = state.current.ordinal, pageCount = { PanelTab.entries.size })
 
     LaunchedEffect(pagerState) {
         snapshotFlow { pagerState.settledPage }.collect { page ->
@@ -175,70 +218,29 @@ fun BackgroundTaskView(
         }
     }
 
-    LaunchedEffect(state.current) {
+    val reduceMotion = LocalReduceMotion.current
+    LaunchedEffect(state.current, reduceMotion) {
         if (pagerState.currentPage != state.current.ordinal) {
-            pagerState.scrollToPage(state.current.ordinal)
+            pagerState.animateScrollToPage(
+                state.current.ordinal,
+                animationSpec = tween(
+                    durationMillis = MaaMotion.pagerDuration(1, reduceMotion),
+                    easing = MaaMotion.Emphasized,
+                ),
+            )
         }
     }
     val context = LocalContext.current
     val serviceDiedMessage = stringResource(R.string.bg_toast_service_died)
     val appDiedMessage = stringResource(R.string.bg_toast_app_died)
-    val permissionNotAcquiredFormat = stringResource(R.string.bg_toast_permission_not_acquired)
-    val currentStartupBackend by rememberUpdatedState(permissions.startupBackend)
-    val currentPermissionLabel by rememberUpdatedState(
-        context.remoteBackendPermissionLabel(
-            currentStartupBackend
-        )
-    )
+    val displayDriftMessage = stringResource(R.string.bg_toast_display_drift)
 
-    if (!permissions.remoteAccessGranted) {
-        var isRequestingRemoteAccess by remember { mutableStateOf(false) }
-        ShizukuPermissionDialog(
-            title = stringResource(
-                R.string.bg_shizuku_permission_title,
-                permissions.startupBackend.display
-            ),
-            message = stringResource(
-                R.string.bg_shizuku_permission_message,
-                permissions.startupBackend.display
-            ),
-            isRequesting = isRequestingRemoteAccess,
-            onConfirm = {
-                if (isRequestingRemoteAccess) return@ShizukuPermissionDialog
-                coroutineScope.launch {
-                    isRequestingRemoteAccess = true
-                    val granted = permissionManager.requestRemoteAccess()
-                    isRequestingRemoteAccess = false
-                    if (!granted) {
-                        Toast.makeText(
-                            context,
-                            permissionNotAcquiredFormat.format(currentPermissionLabel),
-                            Toast.LENGTH_SHORT
-                        ).show()
-                    }
-                }
-            })
-    }
-
-
-    LaunchedEffect(state.isFullscreenMonitor) {
-        onFullscreenChanged(state.isFullscreenMonitor)
-    }
-
-    val pendingExecution by viewModel.coordinator.pendingExecution.collectAsStateWithLifecycle()
-
-    LaunchedEffect(pendingExecution?.requestId) {
-        pendingExecution?.let { request ->
-            viewModel.onScheduledExecutionPageReady(request.requestId)
-        }
-    }
+    // pageReady 栅栏已移除：启动由 LaunchPipeline 驱动，无需等本页 Surface
 
     LaunchedEffect(Unit) {
         dispatcher.serviceDiedEvent.collect {
             Toast.makeText(
-                context,
-                serviceDiedMessage,
-                Toast.LENGTH_SHORT
+                context, serviceDiedMessage, Toast.LENGTH_SHORT
             ).show()
         }
     }
@@ -246,9 +248,15 @@ fun BackgroundTaskView(
     LaunchedEffect(Unit) {
         appWatchdog.appDiedEvent.collect {
             Toast.makeText(
-                context,
-                appDiedMessage,
-                Toast.LENGTH_SHORT
+                context, appDiedMessage, Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        appWatchdog.displayDriftEvent.collect {
+            Toast.makeText(
+                context, displayDriftMessage, Toast.LENGTH_LONG
             ).show()
         }
     }
@@ -272,6 +280,17 @@ fun BackgroundTaskView(
     var isSurfaceAvailable by remember { mutableStateOf(false) }
     var lastSentSurface by remember { mutableStateOf<Surface?>(null) }
     val currentResolution by rememberUpdatedState(displayResolution)
+
+    val pipHost = context as? PipHost
+    val isInPip = LocalIsInPip.current
+
+    // 竞态兜底：pipEligible 已排除全屏态，但 setPictureInPictureParams 要跨进程生效，
+    // 点开全屏后立刻按 Home 仍可能带着全屏态进小窗，进去就退掉
+    LaunchedEffect(isInPip) {
+        if (isInPip) viewModel.onExitFullscreenMonitor()
+    }
+
+    var previewBounds by remember { mutableStateOf<Rect?>(null) }
 
     val previewContent = remember {
         movableContentOf {
@@ -314,25 +333,78 @@ fun BackgroundTaskView(
                                     }
                                 })
                             }
-                        },
-                        modifier = Modifier.fillMaxSize()
+                        }, modifier = Modifier.fillMaxSize()
                     )
-                    if (markers.isNotEmpty()) TouchPreviewOverlay(
+                    // 必须重新读，movableContent 是 remember 出来的，捕获外层 val 会拿到陈旧值
+                    if (!LocalIsInPip.current && markers.isNotEmpty()) TouchPreviewOverlay(
                         markers = markers,
                         displayResolution = displayResolution,
                         modifier = Modifier.fillMaxSize()
                     )
+                    val gameFps by viewModel.gameFps.collectAsStateWithLifecycle()
+                    gameFps?.let { fps ->
+                        Text(
+                            text = "${fps.roundToInt()} FPS",
+                            color = Color.White.copy(alpha = 0.85f),
+                            style = MaterialTheme.typography.labelSmall,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .background(
+                                    Color.Black.copy(alpha = 0.35f),
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
+                        )
+                    }
                 }
             }
         }
     }
 
+    // 全屏预览态排除在外：auto-enter 没有前置钩子，带着强制横屏和收起的系统栏进小窗会互相打架
+    val pipEligible = pipOnHome &&
+            isActivePage &&
+            !state.isFullscreenMonitor &&
+            runMode == RunMode.BACKGROUND &&
+            (maaState == MaaExecutionState.STARTING || maaState == MaaExecutionState.RUNNING) &&
+            isSurfaceAvailable &&
+            PipController.isSupported(context)
+    val pipActivity = pipHost as? Activity
+    DisposableEffect(pipHost, pipActivity, pipEligible, displayResolution, previewBounds) {
+        fun arm(enabled: Boolean, sourceRect: Rect?) {
+            val host = pipHost ?: return
+            val activity = pipActivity ?: return
+            val request = PipRequest(displayResolution, sourceRect)
+            host.pipRequest = if (enabled) request else null
+            PipController.updateParams(activity, enabled, request)
+        }
+        arm(pipEligible, previewBounds)
+        onDispose { arm(enabled = false, sourceRect = null) }
+    }
+
+    if (isInPip) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black),
+            contentAlignment = Alignment.Center
+        ) {
+            previewContent()
+        }
+        return
+    }
+
+    // 放在画中画分支之后，小窗里不该弹准备度引导；首启引导期间也让路
+    if (!onboardingBlocksStartupDialogs()) {
+        ShizukuReadinessGate()
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
+                .windowInsetsPadding(MaaWindowInsets.topBar)
                 .padding(horizontal = 16.dp)
                 .padding(top = 8.dp, bottom = 8.dp)
         ) {
@@ -341,14 +413,27 @@ fun BackgroundTaskView(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(3f)
+                    .onboardingTarget(OnboardingTarget.BG_PREVIEW)
             ) {
                 if (!state.isFullscreenMonitor) {
                     VirtualDisplayPreview(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .onGloballyPositioned { coords ->
+                                val bounds = coords.boundsInWindow()
+                                val next = Rect(
+                                    bounds.left.toInt(),
+                                    bounds.top.toInt(),
+                                    bounds.right.toInt(),
+                                    bounds.bottom.toInt(),
+                                )
+                                if (!next.isEmpty && next != previewBounds) {
+                                    previewBounds = next
+                                }
+                            },
                         isRunning = maaState == MaaExecutionState.RUNNING,
                         isSurfaceAvailable = isSurfaceAvailable,
-                        onClick = { viewModel.onToggleFullscreenMonitor() }
-                    ) {
+                        onClick = { viewModel.onToggleFullscreenMonitor() }) {
                         previewContent()
                     }
                 } else {
@@ -367,7 +452,8 @@ fun BackgroundTaskView(
                 PanelHeader(
                     selectedTab = state.current,
                     onTabSelected = { tab -> viewModel.onTabChange(tab) },
-                    showActions = false
+                    showActions = false,
+                    modifier = Modifier.onboardingTarget(OnboardingTarget.BG_PANEL_TABS),
                 )
 
                 if (isInitialized) {
@@ -380,93 +466,47 @@ fun BackgroundTaskView(
                             state = pagerState,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f),
+                                .weight(1f)
+                                .onboardingTarget(OnboardingTarget.BG_TASK_LIST),
                             userScrollEnabled = true,
                             beyondViewportPageCount = 0
                         ) { page ->
                             when (page) {
                                 0 -> {
-                                    Row(modifier = Modifier.fillMaxSize()) {
-                                        TaskListPanel(
-                                            nodes = nodes,
-                                            selectedNodeId = state.selectedNodeId,
-                                            isEditMode = state.isEditMode,
-                                            isAddingTask = state.isAddingTask,
-                                            isProfileMode = state.isProfileMode,
-                                            onNodeEnabledChange = viewModel::onNodeEnabledChange,
-                                            onNodeSelected = viewModel::onNodeSelected,
-                                            onNodeMove = viewModel::onNodeMove,
-                                            onToggleEditMode = viewModel::onToggleEditMode,
-                                            onToggleAddingTask = viewModel::onToggleAddingTask,
-                                            onToggleProfileMode = viewModel::onToggleProfileMode,
-                                            modifier = Modifier.fillMaxHeight(),
-                                        )
-
-                                        Spacer(modifier = Modifier.width(8.dp))
-
-                                        Card(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .fillMaxHeight(),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surface
-                                            )
-                                        ) {
-                                            Column(modifier = Modifier.padding(top = 10.dp)) {
-                                                TaskConfigPanel(
-                                                    selectedNode = selectedNode,
-                                                    isEditMode = state.isEditMode,
-                                                    isAddingTask = state.isAddingTask,
-                                                    isProfileMode = state.isProfileMode,
-                                                    profiles = profiles,
-                                                    activeProfileId = activeProfileId,
-                                                    onConfigChange = { config ->
-                                                        val nodeId =
-                                                            selectedNode?.id
-                                                                ?: return@TaskConfigPanel
-                                                        viewModel.onNodeConfigChange(
-                                                            nodeId,
-                                                            config
-                                                        )
-                                                    },
-                                                    onAddNode = { viewModel.onAddNode(it) },
-                                                    onRemoveNode = { viewModel.onRemoveNode(it) },
-                                                    onDuplicateNode = { viewModel.onDuplicateNode(it) },
-                                                    onRenameNode = { id, name ->
-                                                        viewModel.onRenameNode(
-                                                            id,
-                                                            name
-                                                        )
-                                                    },
-                                                    onSwitchProfile = {
-                                                        viewModel.onSwitchProfile(
-                                                            it
-                                                        )
-                                                    },
-                                                    onRenameProfile = { id, name ->
-                                                        viewModel.onRenameProfile(
-                                                            id,
-                                                            name
-                                                        )
-                                                    },
-                                                    onDuplicateProfile = {
-                                                        viewModel.onDuplicateProfile(
-                                                            it
-                                                        )
-                                                    },
-                                                    onDeleteProfile = {
-                                                        viewModel.onDeleteProfile(
-                                                            it
-                                                        )
-                                                    },
-                                                    onCreateProfile = { viewModel.onCreateProfile() },
-                                                    onReorderProfile = { from, to ->
-                                                        viewModel.onReorderProfile(from, to)
-                                                    }
-                                                )
-                                            }
-                                        }
-                                    }
+                                    TaskListDetailLayout(
+                                        nodes = nodes,
+                                        selectedNode = selectedNode,
+                                        selectedNodeId = state.selectedNodeId,
+                                        isEditMode = state.isEditMode,
+                                        isAddingTask = state.isAddingTask,
+                                        isProfileMode = state.isProfileMode,
+                                        profiles = profiles,
+                                        activeProfileId = profileId,
+                                        clientType = clientType,
+                                        onNodeEnabledChange = viewModel::onNodeEnabledChange,
+                                        onNodeSelected = viewModel::onNodeSelected,
+                                        onNodeMove = viewModel::onNodeMove,
+                                        onToggleEditMode = viewModel::onToggleEditMode,
+                                        onToggleAddingTask = viewModel::onToggleAddingTask,
+                                        onToggleProfileMode = viewModel::onToggleProfileMode,
+                                        onConfigChange = { config ->
+                                            val nodeId = selectedNode?.id
+                                                ?: return@TaskListDetailLayout
+                                            viewModel.onNodeConfigChange(nodeId, config)
+                                        },
+                                        onAddNode = viewModel::onAddNode,
+                                        onRemoveNode = viewModel::onRemoveNode,
+                                        onDuplicateNode = viewModel::onDuplicateNode,
+                                        onRenameNode = viewModel::onRenameNode,
+                                        onSwitchProfile = viewModel::onSwitchProfile,
+                                        onRenameProfile = viewModel::onRenameProfile,
+                                        onDuplicateProfile = viewModel::onDuplicateProfile,
+                                        onDeleteProfile = viewModel::onDeleteProfile,
+                                        onCreateProfile = viewModel::onCreateProfile,
+                                        onReorderProfile = viewModel::onReorderProfile,
+                                        modifier = Modifier.fillMaxSize(),
+                                        wrapDetailInCard = true,
+                                    )
                                 }
 
                                 1 -> AutoBattlePanel(modifier = Modifier.fillMaxSize())
@@ -475,84 +515,291 @@ fun BackgroundTaskView(
                                 ) {
                                     ToolboxPanel(modifier = Modifier.fillMaxSize())
                                 }
+
                                 3 -> {
                                     val runtimeLogs by viewModel.logs.collectAsStateWithLifecycle()
                                     LogPanel(
                                         logs = runtimeLogs,
                                         onClearLogs = { viewModel.onClearLogs() },
-                                        onClose = { viewModel.onTabChange(PanelTab.TASKS) })
+                                        onExportLogs = { showLogExportSheet = true },
+                                    )
                                 }
                             }
                         }
 
                         if (canShowTaskActions) {
                             Spacer(modifier = Modifier.height(6.dp))
-                            val focusManager = LocalFocusManager.current
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = {
-                                        focusManager.clearFocus()
-                                        when (state.current) {
-                                            PanelTab.TASKS -> viewModel.onStartTasks()
-                                            PanelTab.AUTO_BATTLE -> copilotViewModel.onStart()
-                                            PanelTab.TOOLS -> toolboxViewModel.onStart()
-                                            else -> {}
+                            val inputFocusManager = LocalInputFocusManager.current
+                            val toolboxTab by toolboxViewModel.currentTab.collectAsStateWithLifecycle()
+                            val gachaDisclaimerOk by
+                            toolboxViewModel.gachaDisclaimerAccepted.collectAsStateWithLifecycle()
+                            // 牛牛抽卡：底部栏改为寻访一次/十次，避免与面板内按钮 + 开始任务重复
+                            val isGachaActions = state.current == PanelTab.TOOLS &&
+                                    toolboxTab == ToolboxTab.GACHA &&
+                                    gachaDisclaimerOk
+                            // 未同意免责时隐藏开始栏（只在内容区点「知道了」）
+                            val hideStartBarForGachaDisclaimer = state.current == PanelTab.TOOLS &&
+                                    toolboxTab == ToolboxTab.GACHA &&
+                                    !gachaDisclaimerOk
+                            // 启动按钮的两种「禁用态」：① 前台模式不从后台任务页启动；
+                            // ② 远程后端（Shizuku/Root）不可用。两者均显示为禁用态但仍可点击，
+                            // 点击给出对应提示（防呆），与领域层 checkPreconditions 守卫一致。
+                            val foregroundBlocked = runMode == RunMode.FOREGROUND
+                            val backendBlocked =
+                                !permissionState.isStartupBackendAvailable(permissionState.startupBackend)
+                            val startBlocked = foregroundBlocked || backendBlocked
+                            val switchBackgroundModeMessage =
+                                stringResource(R.string.navigation_toast_switch_background_mode)
+                            val backendUnavailableMessage = stringResource(
+                                R.string.home_toast_backend_unavailable,
+                                permissionState.startupBackend.display
+                            )
+                            val canStart = maaState != MaaExecutionState.RUNNING &&
+                                    maaState != MaaExecutionState.STARTING &&
+                                    maaState != MaaExecutionState.STOPPING
+                            if (!hideStartBarForGachaDisclaimer) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .onboardingTarget(OnboardingTarget.BG_START),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    if (isGachaActions) {
+                                        // 运行中换成停止，否则再加「快捷选项」会挤成四键
+                                        val gachaRunning = maaState == MaaExecutionState.RUNNING ||
+                                                maaState == MaaExecutionState.STOPPING
+                                        if (gachaRunning) {
+                                            OutlinedButton(
+                                                onClick = { toolboxViewModel.onStop() },
+                                                enabled = maaState == MaaExecutionState.RUNNING,
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    contentColor = MaterialTheme.colorScheme.error,
+                                                ),
+                                            ) {
+                                                if (maaState == MaaExecutionState.STOPPING) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        strokeWidth = 2.dp,
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = stringResource(R.string.task_btn_stop),
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    inputFocusManager.clear()
+                                                    if (foregroundBlocked) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            switchBackgroundModeMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        return@Button
+                                                    }
+                                                    if (backendBlocked) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            backendUnavailableMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        return@Button
+                                                    }
+                                                    toolboxViewModel.onStartGacha(once = true)
+                                                },
+                                                enabled = canStart,
+                                                colors = if (startBlocked) {
+                                                    ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = 0.12f,
+                                                        ),
+                                                        contentColor = MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = MaaThemeAlphas.DISABLED,
+                                                        ),
+                                                    )
+                                                } else {
+                                                    ButtonDefaults.buttonColors()
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp),
+                                            ) {
+                                                if (maaState == MaaExecutionState.STARTING) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        color = MaterialTheme.colorScheme.onPrimary,
+                                                        strokeWidth = 2.dp,
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = stringResource(R.string.gacha_once),
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
+                                            OutlinedButton(
+                                                onClick = {
+                                                    inputFocusManager.clear()
+                                                    if (foregroundBlocked) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            switchBackgroundModeMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        return@OutlinedButton
+                                                    }
+                                                    if (backendBlocked) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            backendUnavailableMessage,
+                                                            Toast.LENGTH_SHORT,
+                                                        ).show()
+                                                        return@OutlinedButton
+                                                    }
+                                                    toolboxViewModel.onStartGacha(once = false)
+                                                },
+                                                enabled = canStart,
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp),
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.gacha_ten_times),
+                                                    maxLines = 1,
+                                                )
+                                            }
                                         }
-                                    },
-                                    enabled = maaState != MaaExecutionState.RUNNING && maaState != MaaExecutionState.STARTING && maaState != MaaExecutionState.STOPPING,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    if (maaState == MaaExecutionState.STARTING) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            color = MaterialTheme.colorScheme.onPrimary,
-                                            strokeWidth = 2.dp
-                                        )
                                     } else {
-                                        Text(stringResource(R.string.task_btn_start))
-                                    }
-                                }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        when (state.current) {
-                                            PanelTab.TASKS -> viewModel.onStopTasks()
-                                            PanelTab.AUTO_BATTLE -> copilotViewModel.onStop()
-                                            PanelTab.TOOLS -> toolboxViewModel.onStop()
-                                            else -> {}
+                                        // 运行中换成停止，空出的位置给「快捷选项」
+                                        val taskRunning =
+                                            maaState == MaaExecutionState.RUNNING ||
+                                                    maaState == MaaExecutionState.STOPPING
+                                        if (taskRunning) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    when (state.current) {
+                                                        PanelTab.TASKS -> viewModel.onStopTasks()
+                                                        PanelTab.AUTO_BATTLE -> copilotViewModel.onStop()
+                                                        PanelTab.TOOLS -> toolboxViewModel.onStop()
+                                                        else -> {}
+                                                    }
+                                                },
+                                                enabled = maaState == MaaExecutionState.RUNNING,
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.outlinedButtonColors(
+                                                    contentColor = MaterialTheme.colorScheme.error
+                                                )
+                                            ) {
+                                                if (maaState == MaaExecutionState.STOPPING) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = stringResource(R.string.task_btn_stop),
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = {
+                                                    inputFocusManager.clear()
+                                                    if (foregroundBlocked) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            switchBackgroundModeMessage,
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                        return@Button
+                                                    }
+                                                    if (backendBlocked) {
+                                                        Toast.makeText(
+                                                            context,
+                                                            backendUnavailableMessage,
+                                                            Toast.LENGTH_SHORT
+                                                        ).show()
+                                                        return@Button
+                                                    }
+                                                    when (state.current) {
+                                                        PanelTab.TASKS -> viewModel.onStartTasks()
+                                                        PanelTab.AUTO_BATTLE -> copilotViewModel.onStart()
+                                                        PanelTab.TOOLS -> toolboxViewModel.onStart()
+                                                        else -> {}
+                                                    }
+                                                },
+                                                enabled = canStart,
+                                                colors = if (startBlocked) {
+                                                    ButtonDefaults.buttonColors(
+                                                        containerColor = MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = 0.12f
+                                                        ),
+                                                        contentColor = MaterialTheme.colorScheme.onSurface.copy(
+                                                            alpha = MaaThemeAlphas.DISABLED
+                                                        ),
+                                                    )
+                                                } else {
+                                                    ButtonDefaults.buttonColors()
+                                                },
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                if (maaState == MaaExecutionState.STARTING) {
+                                                    CircularProgressIndicator(
+                                                        modifier = Modifier.size(20.dp),
+                                                        color = MaterialTheme.colorScheme.onPrimary,
+                                                        strokeWidth = 2.dp
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = stringResource(R.string.task_btn_start),
+                                                        maxLines = 1,
+                                                    )
+                                                }
+                                            }
                                         }
-                                    },
-                                    enabled = maaState == MaaExecutionState.RUNNING,
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(
-                                        contentColor = MaterialTheme.colorScheme.error
-                                    )
-                                ) {
-                                    if (maaState == MaaExecutionState.STOPPING) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(20.dp),
-                                            color = MaterialTheme.colorScheme.error,
-                                            strokeWidth = 2.dp
-                                        )
-                                    } else {
-                                        Text(stringResource(R.string.task_btn_stop))
                                     }
-                                }
 
-                                IconButton(
-                                    onClick = { showMoreActions = !showMoreActions },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.MoreVert,
-                                        contentDescription = stringResource(R.string.task_more_actions_cd)
-                                    )
+                                    // 次级操作不参与等分，按内容取宽，剩下的都留给主操作
+                                    OutlinedButton(
+                                        onClick = { showMoreActions = !showMoreActions },
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 14.dp),
+                                        colors = ButtonDefaults.outlinedButtonColors(
+                                            contentColor = if (showMoreActions) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.onSurface
+                                            }
+                                        ),
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (showMoreActions) {
+                                                MaterialTheme.colorScheme.primary
+                                            } else {
+                                                MaterialTheme.colorScheme.outline
+                                            }
+                                        )
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.MoreVert,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = stringResource(R.string.task_btn_quick_options),
+                                            maxLines = 1,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -566,8 +813,7 @@ fun BackgroundTaskView(
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(32.dp),
-                            strokeWidth = 2.dp
+                            modifier = Modifier.size(32.dp), strokeWidth = 2.dp
                         )
                     }
                 }
@@ -585,7 +831,7 @@ fun BackgroundTaskView(
                 isGameMuted = isGameMuted,
                 onToggleGameSound = viewModel::onToggleGameSound,
                 onScreenOff = viewModel::onScreenOff,
-                onShowScreenSaver = { screenSaverManager.show(context as? Activity) },
+                onShowScreenSaver = { coroutineScope.launch { screenSaverManager.show() } },
                 onCaptureScreenshot = viewModel::onCaptureDebugScreenshot,
                 onCloseApp = {
                     if (maaState == MaaExecutionState.RUNNING) {
@@ -639,31 +885,51 @@ fun BackgroundTaskView(
                     .fillMaxSize()
                     .background(Color.Black)
                     .pointerInput(Unit) {
-                        awaitPointerEventScope {
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: continue
-                                viewToVirtualDisplay(
-                                    viewX = change.position.x,
-                                    viewY = change.position.y,
-                                    viewWidth = size.width,
-                                    viewHeight = size.height,
-                                    bufferWidth = displayResolution.width,
-                                    bufferHeight = displayResolution.height
-                                ) { vx, vy ->
-                                    when (event.type) {
-                                        PointerEventType.Press -> viewModel.onTouchDown(vx, vy)
-                                        PointerEventType.Move -> {
-                                            if (change.pressed) {
-                                                viewModel.onTouchMove(vx, vy)
+                        val slots = PreviewPointerSlots()
+                        try {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    for (change in event.changes) {
+                                        val pointerId = change.id.value
+                                        val down = change.changedToDownIgnoreConsumed()
+                                        val up = change.changedToUpIgnoreConsumed()
+                                        if (!down && !up && !change.positionChangedIgnoreConsumed()) continue
+
+                                        // 画面外按下忽略；拖出画面钳到边缘，保证抬起送达
+                                        val point = viewToVirtualDisplay(
+                                            change.position,
+                                            size,
+                                            displayResolution
+                                        )
+                                        val (x, y) = point.offset
+                                        when {
+                                            down -> {
+                                                if (!point.inside) continue
+                                                val contact = slots.acquire(pointerId)
+                                                if (contact < 0) continue
+                                                viewModel.onTouchDown(x, y, contact)
+                                            }
+
+                                            up -> {
+                                                val contact = slots.release(pointerId)
+                                                if (contact < 0) continue
+                                                viewModel.onTouchUp(x, y, contact)
+                                            }
+
+                                            else -> {
+                                                val contact = slots.indexOf(pointerId)
+                                                if (contact < 0) continue
+                                                viewModel.onTouchMove(x, y, contact)
                                             }
                                         }
-
-                                        PointerEventType.Release -> viewModel.onTouchUp(vx, vy)
+                                        change.consume()
                                     }
                                 }
-                                change.consume()
                             }
+                        } finally {
+                            // 预览退出时仍按着的手指由远端整体 CANCEL
+                            viewModel.onTouchCancel()
                         }
                     }, contentAlignment = Alignment.Center
             ) {
@@ -745,24 +1011,26 @@ fun BackgroundTaskView(
     }
 }
 
-private inline fun viewToVirtualDisplay(
-    viewX: Float,
-    viewY: Float,
-    viewWidth: Int,
-    viewHeight: Int,
-    bufferWidth: Int,
-    bufferHeight: Int,
-    block: (vx: Int, vy: Int) -> Unit,
-) {
-    val bufferW = bufferWidth.toFloat()
-    val bufferH = bufferHeight.toFloat()
-    val scale = minOf(viewWidth / bufferW, viewHeight / bufferH)
-    val offsetX = (viewWidth - bufferW * scale) / 2f
-    val offsetY = (viewHeight - bufferH * scale) / 2f
-    val vx = ((viewX - offsetX) / scale).toInt()
-    val vy = ((viewY - offsetY) / scale).toInt()
-    if (vx < 0 || vx >= bufferW.toInt() || vy < 0 || vy >= bufferH.toInt()) return
-    block(vx, vy)
+/** offset 已钳到边缘，inside 取原始落点 */
+private class DisplayPoint(val offset: IntOffset, val inside: Boolean)
+
+private fun viewToVirtualDisplay(
+    view: Offset,
+    viewSize: IntSize,
+    display: DefaultDisplayConfig.Resolution,
+): DisplayPoint {
+    val bufferW = display.width.toFloat()
+    val bufferH = display.height.toFloat()
+    val scale = minOf(viewSize.width / bufferW, viewSize.height / bufferH)
+    val offsetX = (viewSize.width - bufferW * scale) / 2f
+    val offsetY = (viewSize.height - bufferH * scale) / 2f
+    val vx = ((view.x - offsetX) / scale).toInt()
+    val vy = ((view.y - offsetY) / scale).toInt()
+    val inside = vx in 0 until display.width && vy in 0 until display.height
+    return DisplayPoint(
+        IntOffset(vx.coerceIn(0, display.width - 1), vy.coerceIn(0, display.height - 1)),
+        inside,
+    )
 }
 
 
@@ -784,6 +1052,8 @@ private fun BackgroundMoreActionsOverlay(
     val showTouchPreview by appSettingsManager.showTouchPreview.collectAsStateWithLifecycle()
     val debugMode by appSettingsManager.debugMode.collectAsStateWithLifecycle()
     var showHardwareScreenOffConfirm by remember { mutableStateOf(false) }
+    // 非空表示静音确认框待确认，确认后执行；仅静音方向弹，解除不弹
+    var pendingMuteAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val overlayInteractionSource = remember { MutableInteractionSource() }
     val cardInteractionSource = remember { MutableInteractionSource() }
@@ -803,10 +1073,7 @@ private fun BackgroundMoreActionsOverlay(
                 .fillMaxWidth()
                 .padding(start = 16.dp, end = 16.dp, bottom = 64.dp)
                 .clickable(
-                    interactionSource = cardInteractionSource,
-                    indication = null,
-                    onClick = {}
-                ),
+                    interactionSource = cardInteractionSource, indication = null, onClick = {}),
             shape = RoundedCornerShape(4.dp),
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
@@ -857,11 +1124,11 @@ private fun BackgroundMoreActionsOverlay(
                 ) {
                     ActionTile(
                         icon = if (isGameMuted) Icons.AutoMirrored.Filled.VolumeOff else Icons.AutoMirrored.Filled.VolumeUp,
-                        label = if (isGameMuted)
-                            stringResource(R.string.bg_action_game_muted)
-                        else
-                            stringResource(R.string.bg_action_mute_game),
-                        onClick = onToggleGameSound,
+                        label = if (isGameMuted) stringResource(R.string.bg_action_game_muted)
+                        else stringResource(R.string.bg_action_mute_game),
+                        onClick = {
+                            if (isGameMuted) onToggleGameSound() else pendingMuteAction = onToggleGameSound
+                        },
                         modifier = Modifier.weight(1f),
                         containerColor = if (isGameMuted) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.secondary,
                         contentColor = if (isGameMuted) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurface
@@ -888,8 +1155,7 @@ private fun BackgroundMoreActionsOverlay(
 
                 Spacer(modifier = Modifier.height(12.dp))
                 HorizontalDivider(
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    thickness = 0.5.dp
+                    color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 
@@ -906,18 +1172,20 @@ private fun BackgroundMoreActionsOverlay(
                     icon = Icons.Filled.NotificationsPaused,
                     label = stringResource(R.string.bg_auto_mute_on_launch),
                     checked = muteOnGameLaunch,
-                    onCheckedChange = {
-                        coroutineScope.launch { appSettingsManager.setMuteOnGameLaunch(it) }
-                    }
-                )
+                    onCheckedChange = { checked ->
+                        val apply = {
+                            coroutineScope.launch { appSettingsManager.setMuteOnGameLaunch(checked) }
+                            Unit
+                        }
+                        if (checked) pendingMuteAction = apply else apply()
+                    })
                 SettingSwitchRow(
                     icon = Icons.Filled.Cancel,
                     label = stringResource(R.string.bg_auto_close_on_end),
                     checked = closeAppOnTaskEnd,
                     onCheckedChange = {
                         coroutineScope.launch { appSettingsManager.setCloseAppOnTaskEnd(it) }
-                    }
-                )
+                    })
                 SettingSwitchRow(
                     icon = Icons.Filled.StayCurrentPortrait,
                     label = stringResource(R.string.bg_auto_hardware_screen_off),
@@ -932,18 +1200,34 @@ private fun BackgroundMoreActionsOverlay(
                                 )
                             }
                         }
-                    }
-                )
+                    })
                 SettingSwitchRow(
                     icon = Icons.Filled.TouchApp,
                     label = stringResource(R.string.bg_auto_show_touch_preview),
                     checked = showTouchPreview,
                     onCheckedChange = {
                         coroutineScope.launch { appSettingsManager.setShowTouchPreview(it) }
-                    }
-                )
+                    })
             }
         }
+    }
+
+    pendingMuteAction?.let { action ->
+        AdaptiveTaskPromptDialog(
+            visible = true,
+            title = stringResource(R.string.dialog_mute_game_title),
+            message = AnnotatedString(stringResource(R.string.dialog_mute_game_message)),
+            onDismissRequest = { pendingMuteAction = null },
+            onConfirm = {
+                pendingMuteAction = null
+                action()
+            },
+            confirmText = stringResource(R.string.dialog_mute_game_confirm),
+            dismissText = stringResource(R.string.common_cancel),
+            icon = Icons.AutoMirrored.Filled.VolumeOff,
+            iconTint = MaterialTheme.colorScheme.primary,
+            confirmColor = MaterialTheme.colorScheme.primary,
+        )
     }
 
     if (showHardwareScreenOffConfirm) {
@@ -1006,10 +1290,7 @@ private fun ActionTile(
 
 @Composable
 private fun SettingSwitchRow(
-    icon: ImageVector,
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
+    icon: ImageVector, label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit
 ) {
     Row(
         modifier = Modifier

@@ -31,6 +31,9 @@ data class NotificationSettings(
     @PrefKey(default = "") val telegramTopicId: String = "",
     @PrefKey(default = "") val dingTalkAccessToken: String = "",
     @PrefKey(default = "") val dingTalkSecret: String = "",
+    @PrefKey(default = "") val kookBotToken: String = "",
+    @PrefKey(default = "") val kookTargetId: String = "",
+    @PrefKey(default = "false") val kookDirectMessage: String = "false",
     @PrefKey(default = "") val qmsgServer: String = "",
     @PrefKey(default = "") val qmsgKey: String = "",
     @PrefKey(default = "") val qmsgUser: String = "",
@@ -40,4 +43,5 @@ data class NotificationSettings(
     @PrefKey(default = "") val customWebhookUrl: String = "",
     @PrefKey(default = "") val customWebhookHeaders: String = "",
     @PrefKey(default = "") val customWebhookBody: String = "",
+    @PrefKey(default = WEBHOOK_PRESET_CUSTOM_ID) val customWebhookPresetId: String = WEBHOOK_PRESET_CUSTOM_ID,
 )

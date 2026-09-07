@@ -19,8 +19,8 @@ import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.domain.service.MaaResourceLoader
 import com.aliothmoon.maameow.domain.service.update.UpdateService
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -142,13 +142,13 @@ class UpdateViewModel(
         _resourceCheckResult.value = null
     }
 
-    fun confirmResourceDownload() {
+    fun confirmResourceDownload(source: UpdateSource = updateSource.value) {
         viewModelScope.launch {
             val file = File(pathConfig.resourceDir)
 
             val currentVersion = loadResourceVersion()
             val result = updateService.downloadResource(
-                source = updateSource.value,
+                source = source,
                 currentVersion = currentVersion,
                 target = file
             )
@@ -213,6 +213,7 @@ class UpdateViewModel(
             when {
                 // 两者同时存在 → 仅下载 App,资源等下次启动
                 appAvailable != null -> {
+                    lastAppDownloadVersion = appAvailable.version
                     val result = updateService.downloadApp(
                         source = updateSource.value,
                         version = appAvailable.version,
@@ -275,11 +276,12 @@ class UpdateViewModel(
         _appCheckResult.value = null
     }
 
-    fun confirmAppDownload(version: String) {
+    fun confirmAppDownload(version: String, source: UpdateSource = updateSource.value) {
         Timber.i("确认下载 App 更新: version=$version")
+        lastAppDownloadVersion = version
         viewModelScope.launch {
             updateService.downloadApp(
-                source = updateSource.value,
+                source = source,
                 version = version,
                 channel = updateChannel.value
             )
@@ -290,25 +292,64 @@ class UpdateViewModel(
         updateService.resetAppProcess()
     }
 
+    // ==================== 取消下载 / 下载中换源 ====================
+
+    private var lastAppDownloadVersion: String? = null
+
+    fun cancelAppDownload() {
+        viewModelScope.launch {
+            updateService.cancelAppDownload()
+            _toastMessage.tryEmit(appContext.getString(R.string.update_toast_download_canceled))
+        }
+    }
+
+    fun cancelResourceDownload() {
+        viewModelScope.launch {
+            updateService.cancelResourceDownload()
+            _toastMessage.tryEmit(appContext.getString(R.string.update_toast_download_canceled))
+        }
+    }
+
+    fun switchSourceAndRestartDownload(source: UpdateSource) {
+        val appDownloading = appUpdateState.value is UpdateProcessState.Downloading
+        val resourceDownloading = resourceUpdateState.value is UpdateProcessState.Downloading
+        viewModelScope.launch {
+            appSettingsManager.setUpdateSource(source)
+            // 重下用传入的 source，不读 updateSource.value：DataStore 回灌是异步的
+            when {
+                appDownloading -> {
+                    updateService.cancelAppDownload()
+                    lastAppDownloadVersion?.let { confirmAppDownload(it, source) }
+                }
+
+                resourceDownloading -> {
+                    updateService.cancelResourceDownload()
+                    confirmResourceDownload(source)
+                }
+            }
+        }
+    }
+
     // ==================== 更新公告 ====================
 
     private val _changelogDialog = MutableStateFlow<String?>(null)
     val changelogDialog: StateFlow<String?> = _changelogDialog.asStateFlow()
 
     fun checkPendingChangelog() {
-        val version = appSettingsManager.pendingChangelogVersion.value
+        val version = appSettingsManager.pendingChangelogVersion.value.removePrefix("v")
         val content = appSettingsManager.pendingChangelogContent.value
         val isNewVersion = version == BuildConfig.VERSION_NAME
         if (version.isNotEmpty() && content.isNotEmpty() && isNewVersion) {
             _changelogDialog.value = content
+            // 确认已装上就立刻留档，用户直接划走弹窗也能在「关于」里回看
+            viewModelScope.launch {
+                appSettingsManager.promotePendingChangelog()
+            }
         }
     }
 
     fun dismissChangelog() {
         _changelogDialog.value = null
-        viewModelScope.launch {
-            appSettingsManager.clearPendingChangelog()
-        }
     }
 
     private fun saveAppChangelog(appInfo: UpdateInfo?) {

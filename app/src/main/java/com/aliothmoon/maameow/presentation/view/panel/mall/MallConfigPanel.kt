@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.view.panel.mall
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
@@ -48,17 +47,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.res.stringResource
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.MallConfig
 import com.aliothmoon.maameow.data.preferences.TaskChainState
-import com.aliothmoon.maameow.domain.models.resolveMallCreditFightAvailability
+import com.aliothmoon.maameow.data.resource.ActivityManager
+import com.aliothmoon.maameow.domain.models.MallCreditFightAvailability
 import com.aliothmoon.maameow.presentation.components.CheckBoxWithLabel
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipContent
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipIcon
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
+import com.aliothmoon.maameow.utils.i18n.asString
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -179,8 +181,11 @@ private fun BasicMallSettings(config: MallConfig, onConfigChange: (MallConfig) -
     var shoppingTipExpanded by remember { mutableStateOf(false) }
     var creditFightTipExpanded by remember { mutableStateOf(false) }
     val taskChainState: TaskChainState = koinInject()
+    val activityManager: ActivityManager = koinInject()
     val chain by taskChainState.chain.collectAsStateWithLifecycle()
-    val creditFightAvailability = remember(chain) { resolveMallCreditFightAvailability(chain) }
+    val creditFightAvailability = remember(chain, activityManager) {
+        MallCreditFightAvailability.resolve(chain, activityManager)
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // 访问好友
@@ -249,7 +254,8 @@ private fun BasicMallSettings(config: MallConfig, onConfigChange: (MallConfig) -
                 shape = RoundedCornerShape(4.dp)
             ) {
                 Text(
-                    text = creditFightAvailability.warningMessage
+                    text = creditFightAvailability.message?.asString()
+                        ?.takeIf { it.isNotEmpty() }
                         ?: stringResource(R.string.panel_mall_credit_fight_unavailable),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onTertiaryContainer,
@@ -285,7 +291,11 @@ private fun FormationSelector(selectedFormation: Int, onFormationChange: (Int) -
     Column(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(stringResource(R.string.panel_mall_use_formation), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium)
+        Text(
+            stringResource(R.string.panel_mall_use_formation),
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium
+        )
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -416,7 +426,7 @@ private fun PriorityItemsSection(
         )
 
         // 添加按钮
-        AnimatedVisibility(visible = !isReorderMode) {
+        MaaAnimatedVisibility(visible = !isReorderMode) {
             Button(
                 onClick = { showAddPanel = !showAddPanel },
                 enabled = config.shopping,
@@ -437,7 +447,7 @@ private fun PriorityItemsSection(
         }
 
         // 内联添加面板（输入框形式）
-        AnimatedVisibility(
+        MaaAnimatedVisibility(
             visible = showAddPanel,
             enter = expandVertically(),
             exit = shrinkVertically()
@@ -576,7 +586,8 @@ private fun BlacklistSection(config: MallConfig, onConfigChange: (MallConfig) ->
                 containerColor = if (showAddPanel) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.error.copy(
                     alpha = 0.8f
                 )
-            )
+            ),
+            shape = RoundedCornerShape(8.dp)
         ) {
             Text(
                 if (showAddPanel) {
@@ -587,7 +598,7 @@ private fun BlacklistSection(config: MallConfig, onConfigChange: (MallConfig) ->
             )
         }
 
-        AnimatedVisibility(
+        MaaAnimatedVisibility(
             visible = showAddPanel,
             enter = expandVertically(),
             exit = shrinkVertically()

@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.view.panel.roguelike
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -9,7 +8,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -18,6 +16,7 @@ import com.aliothmoon.maameow.data.model.RoguelikeConfig
 import com.aliothmoon.maameow.domain.enums.RoguelikeMode
 import com.aliothmoon.maameow.presentation.components.CheckBoxWithLabel
 import com.aliothmoon.maameow.presentation.components.ITextField
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants.Roguelike as RoguelikeUi
 
 @Composable
@@ -73,7 +72,7 @@ fun ThemeSpecificSettings(
                     label = stringResource(R.string.panel_roguelike_first_floor_foldartal)
                 )
 
-                AnimatedVisibility(visible = config.firstFloorFoldartal) {
+                MaaAnimatedVisibility(visible = config.firstFloorFoldartal) {
                     ITextField(
                         value = config.firstFloorFoldartals,
                         onValueChange = { onConfigChange(config.copy(firstFloorFoldartals = it)) },
@@ -91,7 +90,7 @@ fun ThemeSpecificSettings(
                     label = stringResource(R.string.panel_roguelike_new_squad_foldartal)
                 )
 
-                AnimatedVisibility(visible = config.newSquad2StartingFoldartal) {
+                MaaAnimatedVisibility(visible = config.newSquad2StartingFoldartal) {
                     Column {
                         ITextField(
                             value = config.newSquad2StartingFoldartals,
@@ -117,7 +116,7 @@ fun ThemeSpecificSettings(
                 label = stringResource(R.string.panel_roguelike_start_with_seed)
             )
 
-            AnimatedVisibility(visible = config.startWithSeed) {
+            MaaAnimatedVisibility(visible = config.startWithSeed) {
                 ITextField(
                     value = config.seed,
                     onValueChange = { onConfigChange(config.copy(seed = it)) },

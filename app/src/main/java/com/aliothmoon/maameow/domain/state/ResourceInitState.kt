@@ -1,5 +1,7 @@
 package com.aliothmoon.maameow.domain.state
 
+import com.aliothmoon.maameow.utils.i18n.UiText
+
 /**
  * 资源初始化状态
  */
@@ -34,5 +36,5 @@ sealed class ResourceInitState {
     /**
      * 初始化失败
      */
-    data class Failed(val message: String) : ResourceInitState()
+    data class Failed(val text: UiText) : ResourceInitState()
 }

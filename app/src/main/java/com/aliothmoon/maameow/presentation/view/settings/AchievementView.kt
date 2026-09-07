@@ -30,13 +30,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.achievement.AchievementCategory
+import com.aliothmoon.maameow.data.achievement.AchievementField
 import com.aliothmoon.maameow.data.achievement.AchievementState
-import com.aliothmoon.maameow.data.achievement.achievementText
 import com.aliothmoon.maameow.presentation.components.InfoCard
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.viewmodel.AchievementEvent
@@ -72,8 +71,11 @@ fun AchievementView(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(
+                horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                vertical = MaaDesignTokens.Spacing.sm,
+            ),
+            verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.md),
         ) {
             item {
                 OutlinedTextField(
@@ -116,16 +118,11 @@ fun AchievementView(
 @Composable
 private fun AchievementCard(achievement: AchievementState) {
     val color = achievementColor(achievement)
-    val context = LocalContext.current
     val dateFormat = remember { DateFormat.getDateTimeInstance() }
-    InfoCard(
-        title = "",
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        contentPadding = PaddingValues(MaaDesignTokens.Card.innerPadding),
-    ) {
+    InfoCard(contentColor = MaterialTheme.colorScheme.onSurface) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.md),
             verticalAlignment = Alignment.Top,
         ) {
             Icon(
@@ -135,11 +132,11 @@ private fun AchievementCard(achievement: AchievementState) {
             )
             Column(
                 modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.rowTitleGap),
             ) {
                 Text(
                     text = if (achievement.unlocked) {
-                        context.achievementText(achievement.definition.id, "title")
+                        achievementText(achievement.definition.id, AchievementField.TITLE)
                     } else {
                         stringResource(R.string.achievement_locked_title)
                     },
@@ -149,7 +146,7 @@ private fun AchievementCard(achievement: AchievementState) {
 
                 Text(
                     text = if (achievement.unlocked) {
-                        context.achievementText(achievement.definition.id, "desc")
+                        achievementText(achievement.definition.id, AchievementField.DESC)
                     } else {
                         stringResource(R.string.achievement_locked_desc)
                     },
@@ -158,7 +155,7 @@ private fun AchievementCard(achievement: AchievementState) {
                 )
                 Text(
                     text = if (!achievement.definition.hidden || achievement.unlocked) {
-                        context.achievementText(achievement.definition.id, "condition")
+                        achievementText(achievement.definition.id, AchievementField.CONDITION)
                     } else {
                         stringResource(R.string.achievement_locked_condition)
                     },

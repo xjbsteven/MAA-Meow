@@ -1,7 +1,10 @@
 package com.aliothmoon.maameow.presentation.view.panel
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
@@ -23,11 +26,15 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
@@ -35,13 +42,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import android.net.Uri
-import androidx.activity.compose.rememberLauncherForActivityResult
-import android.widget.Toast
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.res.stringResource
-import com.aliothmoon.maameow.R
-import com.aliothmoon.maameow.presentation.LocalFloatingWindowContext
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -51,11 +51,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import com.aliothmoon.maameow.utils.Misc
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.constant.MaaApi
 import com.aliothmoon.maameow.data.config.MaaPathConfig
 import com.aliothmoon.maameow.data.model.CustomInfrastConfig
@@ -68,10 +71,16 @@ import com.aliothmoon.maameow.domain.enums.InfrastMode
 import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.domain.enums.InfrastRoomType
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants
+import com.aliothmoon.maameow.presentation.LocalFloatingWindowContext
+import com.aliothmoon.maameow.presentation.components.CheckBoxWithExpandableTip
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipContent
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipIcon
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.utils.JsonUtils
+import com.aliothmoon.maameow.utils.Misc
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
@@ -87,15 +96,15 @@ import java.time.format.DateTimeFormatter
 fun InfrastConfigPanel(
     config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit, modifier: Modifier = Modifier
 ) {
+    val usesStationPreset = config.usesRotationStationPreset()
+    val usesCustomJson = config.usesCustomJsonPlan()
+    val showDormAdvanced = config.mode != InfrastMode.Rotation || usesStationPreset
     Column(
         modifier = modifier
             .fillMaxSize()
             .padding(PaddingValues(start = 12.dp, end = 12.dp, top = 2.dp, bottom = 4.dp)),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        val usesCustomJson = config.usesCustomJsonPlan()
-        val usesStationPreset = config.usesRotationStationPreset()
-        val showDormAdvanced = config.mode != InfrastMode.Rotation || usesStationPreset
         val pagerState = rememberPagerState(
             initialPage = 0, pageCount = { 2 })
         val coroutineScope = rememberCoroutineScope()
@@ -154,9 +163,9 @@ fun InfrastConfigPanel(
                             InfrastModeSection(config, onConfigChange)
                         }
                         item {
-                            // 自定义基建排班（仅 Custom 模式）
-                            AnimatedVisibility(
-                                visible = usesCustomJson,
+                            // 自定义基建配置 (仅 Custom 模式显示)
+                            MaaAnimatedVisibility(
+                                visible = config.mode == InfrastMode.Custom,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -164,8 +173,7 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 设施点预设：布局与设施选择
-                            AnimatedVisibility(
+                            MaaAnimatedVisibility(
                                 visible = usesStationPreset,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
@@ -174,8 +182,8 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 无人机用途（非常规/自定义 JSON 模式）
-                            AnimatedVisibility(
+                            // 无人机用途 (Custom 模式下禁用)
+                            MaaAnimatedVisibility(
                                 visible = !usesCustomJson && !usesStationPreset,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
@@ -185,8 +193,8 @@ fun InfrastConfigPanel(
                         }
                         item {
                             // 心情阈值 (仅 Normal 模式显示)
-                            AnimatedVisibility(
-                                visible = config.mode == InfrastMode.Normal,
+                            MaaAnimatedVisibility(
+                                visible = config.mode != InfrastMode.Rotation,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -194,22 +202,15 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 设施列表（队列轮换不显示）
-                            AnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
-                                enter = expandVertically(),
-                                exit = shrinkVertically()
-                            ) {
-                                FacilitiesSection(config, onConfigChange)
-                            }
+                            // 设施列表
+                            FacilitiesSection(config, onConfigChange)
                         }
                     }
 
                     // 高级设置 Tab
                     else -> {
                         item {
-                            // 设施点预设：切换后休整 / 无人机
-                            AnimatedVisibility(
+                            MaaAnimatedVisibility(
                                 visible = usesStationPreset,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
@@ -218,8 +219,8 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 宿舍信赖（常规 / 设施点预设显示）
-                            AnimatedVisibility(
+                            // 宿舍信赖模式 (仅 Normal 模式显示)
+                            MaaAnimatedVisibility(
                                 visible = showDormAdvanced,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
@@ -228,8 +229,8 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 不将已进驻干员放入宿舍
-                            AnimatedVisibility(
+                            // 不将已进驻干员放入宿舍 (仅 Normal 模式显示)
+                            MaaAnimatedVisibility(
                                 visible = showDormAdvanced,
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
@@ -246,7 +247,6 @@ fun InfrastConfigPanel(
                             ReceptionMessageBoardReceiveSection(config, onConfigChange)
                         }
                         item {
-                            // 会客室接收线索
                             ReceptionReceiveClueSection(config, onConfigChange)
                         }
                         item {
@@ -260,6 +260,40 @@ fun InfrastConfigPanel(
                         item {
                             // 继续专精
                             ContinueTrainingSection(config, onConfigChange)
+                        }
+                        item {
+                            // 菲亚梅塔心情恢复 + 恢复目标 (仅 Normal 模式显示)
+                            // 合并成一个 item：拆开时隐藏的那个仍占槽位，会多吃一份间距
+                            MaaAnimatedVisibility(
+                                visible = config.mode == InfrastMode.Normal,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                Column {
+                                    FiammettaRecoverySection(config, onConfigChange)
+                                    MaaAnimatedVisibility(
+                                        visible = config.fiammettaRecoveryEnabled,
+                                        enter = expandVertically(),
+                                        exit = shrinkVertically()
+                                    ) {
+                                        FiammettaTargetsSection(
+                                            config,
+                                            onConfigChange,
+                                            modifier = Modifier.padding(top = 12.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        item {
+                            // 跨设施组合 (仅 Normal 模式显示)
+                            MaaAnimatedVisibility(
+                                visible = config.mode == InfrastMode.Normal,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                CrossFacilityTeamsSection(config, onConfigChange)
+                            }
                         }
                     }
                 }
@@ -304,7 +338,7 @@ private fun InfrastModeSection(
             }
         }
 
-        AnimatedVisibility(
+        MaaAnimatedVisibility(
             visible = config.mode == InfrastMode.Rotation,
             enter = expandVertically(),
             exit = shrinkVertically()
@@ -312,10 +346,9 @@ private fun InfrastModeSection(
             RotationStyleSection(config, onConfigChange)
         }
 
-        // Rotation · 游戏内一键轮换 提示
-        AnimatedVisibility(
-            visible = config.mode == InfrastMode.Rotation &&
-                config.rotationStyle == InfrastRotationStyle.Game,
+        // Rotation 模式提示文字
+        MaaAnimatedVisibility(
+            visible = config.mode == InfrastMode.Rotation,
             enter = expandVertically(),
             exit = shrinkVertically()
         ) {
@@ -326,27 +359,6 @@ private fun InfrastModeSection(
             ) {
                 Text(
                     text = stringResource(R.string.panel_infrast_mode_rotation_tip),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(12.dp)
-                )
-            }
-        }
-
-        // Rotation · 设施点预设 提示
-        AnimatedVisibility(
-            visible = config.mode == InfrastMode.Rotation &&
-                config.rotationStyle == InfrastRotationStyle.StationPreset,
-            enter = expandVertically(),
-            exit = shrinkVertically()
-        ) {
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = MaterialTheme.colorScheme.surfaceVariant,
-                shape = RoundedCornerShape(4.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.panel_infrast_rotation_station_preset_tip),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(12.dp)
@@ -608,7 +620,7 @@ private fun StationPresetDronesSection(
                 style = MaterialTheme.typography.bodyMedium
             )
         }
-        AnimatedVisibility(visible = drones.enable) {
+        MaaAnimatedVisibility(visible = drones.enable) {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = stringResource(R.string.panel_infrast_station_preset_drone_room),
@@ -837,7 +849,7 @@ private fun CustomInfrastSection(
                                 }
                             }
                         }
-                        AnimatedVisibility(
+                        MaaAnimatedVisibility(
                             visible = descExpanded && !custom.description.isNullOrBlank(),
                             enter = expandVertically(),
                             exit = shrinkVertically()
@@ -901,25 +913,6 @@ private fun CustomInfrastSection(
                 onPlanSelected = {
                     onConfigChange(config.copy(customInfrastPlanSelect = it))
                 })
-            if (config.customInfrastPlanSelect >= 0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Checkbox(
-                        checked = config.autoAdvancePlanIndex,
-                        onCheckedChange = {
-                            onConfigChange(config.copy(autoAdvancePlanIndex = it))
-                        },
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.panel_infrast_auto_advance_plan_index),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                }
-            }
         }
 
         //  解析错误提示
@@ -947,7 +940,7 @@ private fun PresetButtonGroup(
             fontWeight = FontWeight.Medium
         )
 
-        UiUsageConstants.defaultInfrastPresets.forEach { (key, _) ->
+        UiUsageConstants.defaultInfrastPresets.forEach { key ->
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.clickable { onPresetSelected(key) }) {
@@ -976,12 +969,19 @@ private fun PlanSelectButtonGroup(
     val hasPeriodicPlan = plans.any { it.period.isNotEmpty() }
     val hasNonPeriodicPlan = plans.any { it.period.isEmpty() }
 
-    // 计算当前时间匹配的计划名（用于时间轮换显示）
-    // TODO: 定时刷新时间轮换显示（WPF 每分钟调用 RefreshInfrastTimeRotationDisplay 更新）
-    val currentPlanName = if (hasPeriodicPlan) {
-        val now = LocalTime.now()
+    var now by remember { mutableStateOf(LocalTime.now()) }
+    LaunchedEffect(hasPeriodicPlan) {
+        if (!hasPeriodicPlan) return@LaunchedEffect
+        while (isActive) {
+            now = LocalTime.now()
+            delay(60_000L - (System.currentTimeMillis() % 60_000L))
+        }
+    }
+
+    // 计算当前时间匹配的计划, 匹配不到时兜底第一个
+    val matchedPlan = if (hasPeriodicPlan) {
         val formatter = DateTimeFormatter.ofPattern("H:mm")
-        val matched = plans.firstOrNull { plan ->
+        plans.firstOrNull { plan ->
             plan.period.any { range ->
                 if (range.size < 2) return@any false
                 val start = runCatching { LocalTime.parse(range[0], formatter) }.getOrNull()
@@ -992,10 +992,10 @@ private fun PlanSelectButtonGroup(
                 else now >= start || now <= end
             }
         }
-        matched?.name ?: plans.firstOrNull()?.name ?: "???"
     } else null
-
-    val currentPlanDisplayName = currentPlanName ?: "???"
+    val inPeriodGap = hasPeriodicPlan && matchedPlan == null
+    val currentPlanDisplayName =
+        (matchedPlan ?: plans.firstOrNull())?.name ?: "???"
 
     var tipExpanded by remember { mutableStateOf(false) }
 
@@ -1019,6 +1019,39 @@ private fun PlanSelectButtonGroup(
             visible = tipExpanded, tipText = tip
         )
 
+        // 当前时间不在任何时间段内, 说明兜底行为
+        if (inPeriodGap && selectedPlanIndex == -1) {
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.errorContainer,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Info,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = stringResource(
+                            R.string.panel_infrast_plan_period_gap_warning,
+                            currentPlanDisplayName
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
+        }
+
         // 时间轮换项（仅当存在带 period 的计划时显示）
         if (hasPeriodicPlan) {
             Row(
@@ -1030,13 +1063,13 @@ private fun PlanSelectButtonGroup(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = stringResource(
-                            R.string.panel_infrast_plan_auto_switch,
-                            currentPlanDisplayName
-                        ),
-                        style = MaterialTheme.typography.bodyMedium
-                    )
+                Text(
+                    text = stringResource(
+                        R.string.panel_infrast_plan_auto_switch,
+                        currentPlanDisplayName
+                    ),
+                    style = MaterialTheme.typography.bodyMedium
+                )
             }
         }
 
@@ -1091,6 +1124,13 @@ private fun PlanSelectButtonGroup(
 }
 
 @Composable
+private fun infrastRotationStyleLabel(style: InfrastRotationStyle): String = when (style) {
+    InfrastRotationStyle.Game -> stringResource(R.string.panel_infrast_rotation_style_game)
+    InfrastRotationStyle.StationPreset ->
+        stringResource(R.string.panel_infrast_rotation_style_station_preset)
+}
+
+@Composable
 private fun infrastModeLabel(mode: InfrastMode): String {
     return when (mode) {
         InfrastMode.Normal -> stringResource(R.string.panel_infrast_mode_normal)
@@ -1108,16 +1148,7 @@ private fun infrastPresetLabel(key: String): String {
         "243_layout_3_times_a_day.json" -> stringResource(R.string.panel_infrast_preset_243_3x)
         "243_layout_4_times_a_day.json" -> stringResource(R.string.panel_infrast_preset_243_4x)
         "333_layout_for_Orundum_3_times_a_day.json" -> stringResource(R.string.panel_infrast_preset_333_3x)
-        "facility_preset_3_shifts_daily.json" -> stringResource(R.string.panel_infrast_preset_facility_3x)
         else -> key
-    }
-}
-
-@Composable
-private fun infrastRotationStyleLabel(style: InfrastRotationStyle): String {
-    return when (style) {
-        InfrastRotationStyle.Game -> stringResource(R.string.panel_infrast_rotation_style_game)
-        InfrastRotationStyle.StationPreset -> stringResource(R.string.panel_infrast_rotation_style_station_preset)
     }
 }
 
@@ -1162,9 +1193,9 @@ private fun UsesOfDronesSection(
 ) {
     val options = localizedDroneUsageOptions()
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                text = stringResource(R.string.panel_infrast_drones_title),
-                style = MaterialTheme.typography.bodyMedium,
+        Text(
+            text = stringResource(R.string.panel_infrast_drones_title),
+            style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Medium
         )
 
@@ -1266,27 +1297,39 @@ private fun FacilitiesSection(
                 expanded = tipExpanded, onExpandedChange = { tipExpanded = it })
         }
 
+        // Normal 模式下换班顺序由 core 统一安排
+        val reorderable = config.mode != InfrastMode.Normal
+
+        // List 不是稳定类型，不记忆会让列表每次重组都重建
+        val facilities = remember(config.facilities) { config.normalizedFacilities() }
+
         ExpandableTipContent(
             visible = tipExpanded,
-            tipText = stringResource(R.string.panel_infrast_facilities_tip)
+            tipText = stringResource(
+                if (reorderable) R.string.panel_infrast_facilities_tip
+                else R.string.panel_infrast_facilities_tip_normal
+            )
         )
 
-        // 设施列表（支持拖拽排序 + 勾选）
         FacilityList(
-            facilities = config.facilities,
+            facilities = facilities,
+            reorderable = reorderable,
             onFacilitiesChange = { onConfigChange(config.copy(facilities = it)) })
 
-        // 全选/清除按钮
         Row(
-            modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Button(
                 onClick = {
                     onConfigChange(
                         config.copy(
-                            facilities = config.facilities.map { it.first to true })
+                            facilities = facilities.map { it.first to true },
+                        ),
                     )
-                }, modifier = Modifier.weight(1f)
+                },
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.small,
             ) {
                 Text(stringResource(R.string.common_select_all))
             }
@@ -1295,9 +1338,12 @@ private fun FacilitiesSection(
                 onClick = {
                     onConfigChange(
                         config.copy(
-                            facilities = config.facilities.map { it.first to false })
+                            facilities = facilities.map { it.first to false },
+                        ),
                     )
-                }, modifier = Modifier.weight(1f)
+                },
+                modifier = Modifier.weight(1f),
+                shape = MaterialTheme.shapes.small,
             ) {
                 Text(stringResource(R.string.common_clear))
             }
@@ -1306,14 +1352,16 @@ private fun FacilitiesSection(
 }
 
 /**
- * 设施列表展示（支持拖拽排序 + 勾选）
+ * 设施列表展示（勾选 + 可选的拖拽排序）
  *
  * @param facilities 设施列表（有序，含启用状态）
+ * @param reorderable 是否允许长按拖拽排序
  * @param onFacilitiesChange 设施列表变化回调
  */
 @Composable
 private fun FacilityList(
     facilities: List<Pair<InfrastRoomType, Boolean>>,
+    reorderable: Boolean,
     onFacilitiesChange: (List<Pair<InfrastRoomType, Boolean>>) -> Unit
 ) {
 
@@ -1330,35 +1378,81 @@ private fun FacilityList(
                 }
                 onFacilitiesChange(newList)
             }, modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) { _, entry, _ ->
+        ) { index, entry, isDragging ->
             key(entry.first) {
                 ReorderableItem {
                     val (facility, enabled) = entry
-                    Row(
+                    val toggle = {
+                        onFacilitiesChange(
+                            facilities.map {
+                                if (it.first == facility) it.first to !it.second else it
+                            }
+                        )
+                    }
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .longPressDraggableHandle()
-                            .clickable {
-                                val newList = facilities.map {
-                                    if (it.first == facility) it.first to !it.second else it
-                                }
-                                onFacilitiesChange(newList)
+                            .then(if (reorderable) Modifier.longPressDraggableHandle() else Modifier),
+                        colors = CardDefaults.cardColors(
+                            containerColor = when {
+                                isDragging -> MaterialTheme.colorScheme.surfaceVariant
+                                enabled -> MaterialTheme.colorScheme.surface
+                                else -> MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
                             }
-                            .padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = enabled, onCheckedChange = { checked ->
-                                val newList = facilities.map {
-                                    if (it.first == facility) it.first to checked else it
-                                }
-                                onFacilitiesChange(newList)
-                            }, modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = infrastRoomTypeLabel(facility),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        ),
+                        border = BorderStroke(
+                            width = 1.dp,
+                            color = if (isDragging) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.outlineVariant
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (isDragging) 8.dp else 0.dp
+                        ),
+                        shape = MaterialTheme.shapes.extraSmall
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable(onClick = toggle)
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = enabled,
+                                onCheckedChange = { toggle() },
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            // 顺序即换班优先级，仅可排序时才有意义
+                            if (reorderable) {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.width(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
+                            Text(
+                                text = infrastRoomTypeLabel(facility),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (enabled) MaterialTheme.colorScheme.onSurface
+                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (reorderable) {
+                                Icon(
+                                    Icons.Default.Menu,
+                                    contentDescription = stringResource(R.string.panel_infrast_facility_drag_reorder),
+                                    modifier = Modifier
+                                        .draggableHandle()
+                                        .size(28.dp)
+                                        .padding(5.dp),
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1472,9 +1566,6 @@ private fun ReceptionMessageBoardReceiveSection(
     }
 }
 
-/**
- * 会客室接收线索
- */
 @Composable
 private fun ReceptionReceiveClueSection(
     config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
@@ -1569,3 +1660,152 @@ private fun ContinueTrainingSection(
 }
 
 private fun queryFileName(context: Context, uri: Uri): String? = Misc.queryFileName(context, uri)
+
+/** 菲亚梅塔心情恢复开关（仅 Normal 模式显示），关闭时 core 跳过宿舍前置轮 */
+@Composable
+private fun FiammettaRecoverySection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    var tipExpanded by remember { mutableStateOf(false) }
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Checkbox(
+                checked = config.fiammettaRecoveryEnabled,
+                onCheckedChange = { onConfigChange(config.copy(fiammettaRecoveryEnabled = it)) },
+                modifier = Modifier.size(20.dp)
+            )
+            Text(
+                text = stringResource(R.string.panel_infrast_fiammetta_recovery),
+                style = MaterialTheme.typography.bodyMedium
+            )
+            ExpandableTipIcon(
+                expanded = tipExpanded, onExpandedChange = { tipExpanded = it })
+        }
+        ExpandableTipContent(
+            visible = tipExpanded,
+            tipText = stringResource(R.string.panel_infrast_fiammetta_recovery_tip)
+        )
+    }
+}
+
+/**
+ * 菲亚梅塔恢复目标（仅 Normal 模式显示）
+ * 选 1～3 个，选满后再选顶掉最早选的
+ */
+@Composable
+private fun FiammettaTargetsSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var tipExpanded by remember { mutableStateOf(false) }
+    val selected = config.fiammettaTargets
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = modifier) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = stringResource(R.string.panel_infrast_fiammetta_targets_title),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
+            ExpandableTipIcon(
+                expanded = tipExpanded, onExpandedChange = { tipExpanded = it })
+        }
+
+        ExpandableTipContent(
+            visible = tipExpanded,
+            tipText = stringResource(R.string.panel_infrast_fiammetta_targets_tip)
+        )
+
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            UiUsageConstants.fiammettaTargetValues.forEach { name ->
+                val checked = name in selected
+                Surface(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            val next = when {
+                                // 至少保留 1 个，core 对空名单会回退默认三人
+                                checked && selected.size <= 1 -> return@clickable
+                                checked -> selected - name
+                                selected.size >= UiUsageConstants.MAX_FIAMMETTA_TARGETS ->
+                                    selected.drop(1) + name
+
+                                else -> selected + name
+                            }
+                            onConfigChange(config.copy(fiammettaTargets = next))
+                        },
+                    color = if (checked) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text(
+                        text = fiammettaTargetLabel(name),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (checked) MaterialTheme.colorScheme.onPrimary
+                        else MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun fiammettaTargetLabel(name: String): String = when (name) {
+    "清流" -> stringResource(R.string.panel_infrast_fiammetta_target_purestream)
+    "可露希尔" -> stringResource(R.string.panel_infrast_fiammetta_target_closure)
+    "但书" -> stringResource(R.string.panel_infrast_fiammetta_target_proviso)
+    "巫恋" -> stringResource(R.string.panel_infrast_fiammetta_target_shamare)
+    "龙舌兰" -> stringResource(R.string.panel_infrast_fiammetta_target_tequila)
+    "歌蕾蒂娅" -> stringResource(R.string.panel_infrast_fiammetta_target_gladiia)
+    else -> name
+}
+
+/**
+ * 跨设施组合（仅 Normal 模式显示）
+ */
+@Composable
+private fun CrossFacilityTeamsSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        CheckBoxWithExpandableTip(
+            checked = config.usePinusSylvestris,
+            onCheckedChange = { onConfigChange(config.copy(usePinusSylvestris = it)) },
+            label = stringResource(R.string.panel_infrast_use_pinus_sylvestris),
+            tipText = stringResource(R.string.panel_infrast_use_pinus_sylvestris_tip)
+        )
+        CheckBoxWithExpandableTip(
+            checked = config.usePerceptionInformation,
+            onCheckedChange = { onConfigChange(config.copy(usePerceptionInformation = it)) },
+            label = stringResource(R.string.panel_infrast_use_perception_information),
+            tipText = stringResource(R.string.panel_infrast_use_perception_information_tip)
+        )
+        CheckBoxWithExpandableTip(
+            checked = config.useWorldlyPlight,
+            onCheckedChange = { onConfigChange(config.copy(useWorldlyPlight = it)) },
+            label = stringResource(R.string.panel_infrast_use_worldly_plight),
+            tipText = stringResource(R.string.panel_infrast_use_worldly_plight_tip)
+        )
+        CheckBoxWithExpandableTip(
+            checked = config.useAbyssalHunter,
+            onCheckedChange = { onConfigChange(config.copy(useAbyssalHunter = it)) },
+            label = stringResource(R.string.panel_infrast_use_abyssal_hunter),
+            tipText = stringResource(R.string.panel_infrast_use_abyssal_hunter_tip)
+        )
+    }
+}

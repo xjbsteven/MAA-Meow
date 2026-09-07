@@ -1,12 +1,10 @@
 package com.aliothmoon.maameow.presentation.view.panel.roguelike
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -18,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -29,6 +26,7 @@ import com.aliothmoon.maameow.presentation.components.CheckBoxWithLabel
 import com.aliothmoon.maameow.presentation.components.ITextField
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipContent
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipIcon
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants.Roguelike as RoguelikeUi
 
 @Composable
@@ -53,7 +51,7 @@ fun AdvancedRoguelikeSettings(
             enabled = config.mode != RoguelikeMode.Investment
         )
 
-        AnimatedVisibility(visible = config.investmentEnabled) {
+        MaaAnimatedVisibility(visible = config.investmentEnabled) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
@@ -132,7 +130,7 @@ fun AdvancedRoguelikeSettings(
         }
 
         // WPF: Visibility="RoguelikeUseSupportUnit AND RoguelikeCoreChar != ''" (line 321)
-        AnimatedVisibility(visible = config.useSupport && supportEnabled) {
+        MaaAnimatedVisibility(visible = config.useSupport && supportEnabled) {
             CheckBoxWithLabel(
                 checked = config.enableNonfriendSupport,
                 onCheckedChange = { onConfigChange(config.copy(enableNonfriendSupport = it)) },

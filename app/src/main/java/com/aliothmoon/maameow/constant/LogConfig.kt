@@ -19,4 +19,7 @@ object LogConfig {
 
     /** 日志批量刷新间隔（毫秒） */
     const val LOG_FLUSH_INTERVAL_MS = 75L
+
+    /** 导出时 gui / schedule / error_logs / crash_logs 仅保留近 N 天 */
+    const val EXPORT_ROLLING_LOG_DAYS = 7
 }

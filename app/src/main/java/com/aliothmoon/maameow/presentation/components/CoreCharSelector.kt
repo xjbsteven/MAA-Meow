@@ -8,10 +8,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -30,6 +36,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.resource.ResourceDataManager
+import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipContent
+import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipIcon
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
@@ -39,16 +47,21 @@ fun CoreCharSelector(
     onValueChange: (String) -> Unit,
     theme: String,
     resourceDataManager: ResourceDataManager,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** 该主题的开局配置建议，为 null 时不显示提示入口 */
+    themeTip: String? = null,
 ) {
     val coroutineScope = rememberCoroutineScope()
+
+    var tipExpanded by remember { mutableStateOf(false) }
 
     // 内部输入状态（与配置值分离，用于显示用户正在输入的内容）
     var inputText by remember(value) { mutableStateOf(value) }
 
     // 校验状态
     var isValid by remember { mutableStateOf(true) }
-    var showSuggestions by remember { mutableStateOf(false) }
+    // 未选过干员时默认展开推荐列表，列表按 priority 排序，首位即该主题最推荐的开局
+    var showSuggestions by remember { mutableStateOf(value.isBlank()) }
 
     // 是否正在校验（用于显示加载状态）
     var isValidating by remember { mutableStateOf(false) }
@@ -71,8 +84,8 @@ fun CoreCharSelector(
     // 处理输入变化的函数
     fun handleInputChange(newValue: String) {
         inputText = newValue
-        // 输入时不显示建议列表
-        showSuggestions = false
+        // 输入即是搜索，保持列表展开并实时过滤
+        showSuggestions = true
         Timber.d("[CoreCharSelector] handleInputChange: newValue='$newValue', currentValue='$value'")
 
         if (newValue.isBlank()) {
@@ -95,12 +108,11 @@ fun CoreCharSelector(
                 val validationResult = resourceDataManager.isValidCharacterName(newValue)
                 Timber.d("[CoreCharSelector] 校验结果: validationResult=$validationResult, newValue='$newValue'")
 
-                // 计算建议列表
-                val newSuggestions = if (validationResult) {
-                    recommendedChars.filter { it.contains(newValue, ignoreCase = true) }
-                } else {
-                    resourceDataManager.search(newValue, 15)
-                }
+                // 先在推荐列表里找，没命中再全量搜索
+                // 否则输入「有效但非该主题推荐」的干员时列表会空掉
+                val newSuggestions = recommendedChars
+                    .filter { it.contains(newValue, ignoreCase = true) }
+                    .ifEmpty { resourceDataManager.search(newValue, 15) }
                 Timber.d("[CoreCharSelector] 建议列表计算完成: ${newSuggestions.size} 个结果")
 
                 // 检查输入值是否仍然 match（防止竞态条件）
@@ -138,11 +150,29 @@ fun CoreCharSelector(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = stringResource(R.string.core_char_selector_title),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.core_char_selector_title),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+                // 只有带专属开局建议的主题才显示入口
+                if (themeTip != null) {
+                    ExpandableTipIcon(
+                        expanded = tipExpanded,
+                        onExpandedChange = { tipExpanded = it }
+                    )
+                    Text(
+                        text = stringResource(R.string.panel_roguelike_theme_tip_recommended),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.clickable { tipExpanded = !tipExpanded }
+                    )
+                }
+            }
             if (recommendedChars.isNotEmpty()) {
                 Text(
                     text = if (showSuggestions) {
@@ -162,6 +192,10 @@ fun CoreCharSelector(
             }
         }
 
+        if (themeTip != null) {
+            ExpandableTipContent(visible = tipExpanded, tipText = themeTip)
+        }
+
         // 输入框
         Box {
             ITextField(
@@ -171,7 +205,25 @@ fun CoreCharSelector(
                 },
                 placeholder = stringResource(R.string.core_char_selector_placeholder),
                 outlineColor = if (!isValid && !isValidating) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = if (inputText.isNotEmpty()) {
+                    {
+                        IconButton(
+                            onClick = { handleInputChange("") },
+                            modifier = Modifier
+                                .size(32.dp)
+                                .offset(x = (-4).dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = stringResource(R.string.common_clear),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else {
+                    null
+                }
             )
         }
 

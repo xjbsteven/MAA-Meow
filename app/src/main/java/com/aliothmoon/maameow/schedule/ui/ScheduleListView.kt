@@ -3,11 +3,11 @@ package com.aliothmoon.maameow.schedule.ui
 import android.content.Context
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -17,13 +17,13 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.List
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Alarm
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,16 +44,34 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
-import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.constant.Routes
+import com.aliothmoon.maameow.domain.models.RemoteBackend
+import com.aliothmoon.maameow.manager.PermissionManager
+import com.aliothmoon.maameow.presentation.components.BackendReadyFixHost
+import com.aliothmoon.maameow.presentation.components.InfoCard
+import com.aliothmoon.maameow.presentation.components.SettingRow
+import com.aliothmoon.maameow.presentation.components.TopAppBar
+import com.aliothmoon.maameow.presentation.components.rememberBackendReadyFixState
+import com.aliothmoon.maameow.presentation.onboarding.OnboardingTarget
+import com.aliothmoon.maameow.presentation.onboarding.onboardingBlocksStartupDialogs
+import com.aliothmoon.maameow.presentation.onboarding.onboardingTarget
 import com.aliothmoon.maameow.schedule.model.ExecutionResult
-import com.aliothmoon.maameow.schedule.service.AutoStartHelper
+import com.aliothmoon.maameow.schedule.model.ScheduleHealthIssue
 import com.aliothmoon.maameow.schedule.model.ScheduleStrategy
+import com.aliothmoon.maameow.schedule.service.AutoStartHelper
+import com.aliothmoon.maameow.schedule.service.AutoStartTarget
+import com.aliothmoon.maameow.schedule.service.ExactAlarmSettings
+import com.aliothmoon.maameow.theme.MaaDesignTokens
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.koin.androidx.compose.koinViewModel
-import androidx.core.content.edit
+import org.koin.compose.koinInject
 
 @Composable
 fun ScheduleListView(
@@ -62,19 +81,59 @@ fun ScheduleListView(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var deleteConfirmId by remember { mutableStateOf<String?>(null) }
-    var showAutoStartGuide by remember { mutableStateOf(false) }
+    var autoStartTarget by remember { mutableStateOf<AutoStartTarget?>(null) }
 
-    // 首次有策略时检查是否需要自启动引导
-    LaunchedEffect(state.strategies.isNotEmpty()) {
-        if (state.strategies.isNotEmpty() && AutoStartHelper.isKnownRestrictiveManufacturer()) {
-            val prefs = context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
-            if (!prefs.getBoolean("autostart_guided", false)) {
-                val intent = AutoStartHelper.getAutoStartIntent(context)
-                if (intent != null) {
-                    showAutoStartGuide = true
-                    prefs.edit { putBoolean("autostart_guided", true) }
-                }
-            }
+    val permissionManager: PermissionManager = koinInject()
+    val scope = rememberCoroutineScope()
+
+    val schedulePrefs = remember(context) {
+        context.getSharedPreferences("schedule_prefs", Context.MODE_PRIVATE)
+    }
+
+    // 设置页没有结果回调，回来时重读精确闹钟开关
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        viewModel.refreshExactAlarmPermission()
+    }
+
+    // 键取布尔而非计数，否则每次启停策略都会重跑整套跨进程探测
+    val hasEnabledStrategy = state.strategies.any { it.enabled }
+    // 引导期间不弹，也不标记本次开机已提醒
+    val onboardingBlocking = onboardingBlocksStartupDialogs()
+    LaunchedEffect(hasEnabledStrategy, onboardingBlocking) {
+        if (!hasEnabledStrategy || onboardingBlocking) return@LaunchedEffect
+        // prefs 与 resolveActivity 都是跨进程，整段留在 IO 上
+        val target = withContext(Dispatchers.IO) {
+            if (!AutoStartHelper.shouldRemindThisBoot(
+                    context,
+                    schedulePrefs
+                )
+            ) return@withContext null
+            AutoStartHelper.resolveTarget(context)
+                ?.also { AutoStartHelper.markRemindedThisBoot(context, schedulePrefs) }
+        }
+        autoStartTarget = target
+    }
+
+    val backendFix = rememberBackendReadyFixState()
+    BackendReadyFixHost(backendFix)
+
+    fun openExactAlarmSettings() {
+        ExactAlarmSettings.open(context)
+        viewModel.refreshExactAlarmPermission()
+    }
+
+    fun fixHealthIssue(issue: ScheduleHealthIssue) {
+        when (issue) {
+            ScheduleHealthIssue.BACKEND -> backendFix.request()
+            ScheduleHealthIssue.EXACT_ALARM -> openExactAlarmSettings()
+            ScheduleHealthIssue.BATTERY ->
+                scope.launch { permissionManager.requestBatteryWhitelist(context) }
+
+            ScheduleHealthIssue.NOTIFICATION ->
+                scope.launch { permissionManager.requestNotification(context) }
+
+            ScheduleHealthIssue.OVERLAY ->
+                scope.launch { permissionManager.requestOverlay(context) }
         }
     }
 
@@ -83,58 +142,76 @@ fun ScheduleListView(
             TopAppBar(
                 title = stringResource(R.string.schedule_title),
                 actions = {
-                    IconButton(onClick = { navController.navigate(Routes.SCHEDULE_TRIGGER_LOG) }) {
+                    // 与健康卡的精确闹钟项同一条路；允许之后该项消失，靠这个入口回到系统开关页
+                    if (state.exactAlarmConfigurable) {
+                        IconButton(onClick = { openExactAlarmSettings() }) {
+                            Icon(
+                                imageVector = Icons.Outlined.Alarm,
+                                contentDescription = stringResource(R.string.schedule_exact_alarm_settings),
+                            )
+                        }
+                    }
+                    IconButton(
+                        onClick = { navController.navigate(Routes.SCHEDULE_TRIGGER_LOG) },
+                        modifier = Modifier.onboardingTarget(OnboardingTarget.SCHEDULE_TRIGGER_LOG),
+                    ) {
                         Icon(
-                            Icons.AutoMirrored.Filled.List,
-                            contentDescription = stringResource(R.string.schedule_trigger_log_title)
+                            imageVector = Icons.Outlined.History,
+                            contentDescription = stringResource(R.string.schedule_trigger_log_title),
+                        )
+                    }
+                    IconButton(
+                        onClick = { navController.navigate("schedule_edit/new") },
+                        modifier = Modifier.onboardingTarget(OnboardingTarget.SCHEDULE_ADD),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = stringResource(R.string.schedule_create_strategy),
                         )
                     }
                 }
             )
         },
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { navController.navigate("schedule_edit/new") }
-            ) {
-                Icon(Icons.Default.Add, contentDescription = stringResource(R.string.schedule_create_strategy))
-            }
-        }
+        // 外层 MainScreen 的 bottomBar 已消费导航栏 inset；此处不再重复预留，
+        // 否则底部会多出一条等高于导航栏的空白条
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
-        if (state.strategies.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.DateRange,
-                        contentDescription = null,
-                        modifier = Modifier.size(64.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                    )
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        stringResource(R.string.schedule_empty_state),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        stringResource(R.string.schedule_empty_hint_add),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .onboardingTarget(OnboardingTarget.SCHEDULE_LIST),
+            contentPadding = PaddingValues(
+                horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                vertical = MaaDesignTokens.Spacing.sm,
+            ),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            if (state.healthIssues.isNotEmpty()) {
+                item(key = "schedule-health") {
+                    ScheduleHealthCard(
+                        issues = state.healthIssues,
+                        backend = state.startupBackend,
+                        onFix = ::fixHealthIssue,
                     )
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            if (state.strategies.isEmpty()) {
+                item(key = "empty") {
+                    // fillParentMaxSize 撑的是整个 LazyColumn 视口，上面有别的项时
+                    // 会把空状态顶到折叠线以下
+                    val isOnlyItem = state.healthIssues.isEmpty()
+                    ScheduleEmptyState(
+                        modifier = if (isOnlyItem) {
+                            Modifier.fillParentMaxSize()
+                        } else {
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 48.dp)
+                        }
+                    )
+                }
+            } else {
                 items(state.strategies, key = { it.id }) { strategy ->
                     val profileName = state.profiles.find { it.id == strategy.profileId }?.name
                     StrategyCard(
@@ -158,32 +235,108 @@ fun ScheduleListView(
                     TextButton(onClick = {
                         viewModel.onDeleteStrategy(deleteConfirmId!!)
                         deleteConfirmId = null
-                    }) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
+                    }) {
+                        Text(
+                            stringResource(R.string.common_delete),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 },
                 dismissButton = {
-                    TextButton(onClick = { deleteConfirmId = null }) { Text(stringResource(R.string.common_cancel)) }
+                    TextButton(onClick = {
+                        deleteConfirmId = null
+                    }) { Text(stringResource(R.string.common_cancel)) }
                 }
             )
         }
 
-        if (showAutoStartGuide) {
+        autoStartTarget?.let { target ->
             AlertDialog(
-                onDismissRequest = { showAutoStartGuide = false },
+                onDismissRequest = { autoStartTarget = null },
                 title = { Text(stringResource(R.string.schedule_auto_start_permission_title)) },
-                text = { Text(stringResource(R.string.schedule_auto_start_permission_message)) },
+                text = {
+                    Text(
+                        stringResource(
+                            if (target is AutoStartTarget.AppDetails) {
+                                R.string.schedule_auto_start_permission_message_fallback
+                            } else {
+                                R.string.schedule_auto_start_permission_message
+                            }
+                        )
+                    )
+                },
                 confirmButton = {
                     TextButton(onClick = {
-                        AutoStartHelper.getAutoStartIntent(context)?.let {
+                        AutoStartHelper.intentFor(context, target)?.let {
                             runCatching { context.startActivity(it) }
                         }
-                        showAutoStartGuide = false
+                        autoStartTarget = null
                     }) { Text(stringResource(R.string.schedule_go_to_settings)) }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showAutoStartGuide = false }) { Text(stringResource(R.string.schedule_later)) }
+                    // 已配好的用户不该每次重启都挨一遍，给个永久出口
+                    Row {
+                        TextButton(onClick = {
+                            AutoStartHelper.markNeverRemind(schedulePrefs)
+                            autoStartTarget = null
+                        }) { Text(stringResource(R.string.schedule_auto_start_dont_remind)) }
+                        TextButton(onClick = { autoStartTarget = null }) {
+                            Text(stringResource(R.string.common_later))
+                        }
+                    }
                 }
             )
         }
+    }
+}
+
+/** 调用方保证仅在 issues 非空时展示 */
+@Composable
+private fun ScheduleHealthCard(
+    issues: List<ScheduleHealthIssue>,
+    backend: RemoteBackend,
+    onFix: (ScheduleHealthIssue) -> Unit,
+) {
+    InfoCard(title = stringResource(R.string.schedule_health_title)) {
+        issues.forEach { issue ->
+            val (title, description) = scheduleHealthIssueText(issue, backend)
+            SettingRow(
+                title = title,
+                description = description,
+                trailing = {
+                    TextButton(onClick = { onFix(issue) }) {
+                        Text(stringResource(R.string.schedule_health_fix))
+                    }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScheduleEmptyState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.DateRange,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            stringResource(R.string.schedule_empty_state),
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            stringResource(R.string.schedule_empty_hint_add),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+        )
     }
 }
 

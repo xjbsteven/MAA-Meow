@@ -4,8 +4,8 @@ import com.aliothmoon.maameow.constant.MaaApi
 import com.aliothmoon.maameow.data.api.MirrorChyanApiClient
 import com.aliothmoon.maameow.data.api.MirrorChyanBizException
 import com.aliothmoon.maameow.data.datasource.AppDownloader
-import com.aliothmoon.maameow.data.model.update.UpdateCheckResult
 import com.aliothmoon.maameow.data.model.update.UpdateChannel
+import com.aliothmoon.maameow.data.model.update.UpdateCheckResult
 import com.aliothmoon.maameow.data.model.update.UpdateError
 import com.aliothmoon.maameow.data.model.update.UpdateInfo
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
@@ -57,9 +57,7 @@ class MirrorChyanAppVersionChecker(
                 when (e) {
                     is MirrorChyanBizException -> UpdateCheckResult.Error(e.toUpdateError())
                     else -> UpdateCheckResult.Error(
-                        UpdateError.NetworkError(
-                            e.message ?: "网络错误"
-                        )
+                        UpdateError.NetworkError(e.message)
                     )
                 }
             }

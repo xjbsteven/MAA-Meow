@@ -1,34 +1,37 @@
 package com.aliothmoon.maameow.presentation.viewmodel
 
+import android.content.ClipboardManager
 import android.content.Context
 import androidx.annotation.StringRes
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aliothmoon.maameow.R
-import com.aliothmoon.maameow.constant.Packages
 import com.aliothmoon.maameow.data.achievement.AchievementEvents
 import com.aliothmoon.maameow.data.achievement.AchievementRepository
 import com.aliothmoon.maameow.data.model.CopilotConfig
 import com.aliothmoon.maameow.data.model.copilot.CopilotListItem
 import com.aliothmoon.maameow.data.model.copilot.CopilotTaskData
 import com.aliothmoon.maameow.data.model.copilot.DifficultyFlags
-import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.data.preferences.TaskChainState
 import com.aliothmoon.maameow.data.repository.CopilotRepository
+import com.aliothmoon.maameow.data.resource.CopilotResourceProvider
 import com.aliothmoon.maameow.data.resource.ResourceDataManager
-import com.aliothmoon.maameow.domain.models.RunMode
-import com.aliothmoon.maameow.domain.service.AppAliveChecker
+import com.aliothmoon.maameow.domain.service.CopilotCodeType
 import com.aliothmoon.maameow.domain.service.CopilotManager
 import com.aliothmoon.maameow.domain.service.CopilotRequestException
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.service.OperatorSummaryData
+import com.aliothmoon.maameow.domain.service.copilot.CopilotRequirementCorrector
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
+import com.aliothmoon.maameow.domain.usecase.CheckGameReadinessUseCase
+import com.aliothmoon.maameow.domain.usecase.GameReadiness
+import com.aliothmoon.maameow.domain.usecase.TaskStartContext
+import com.aliothmoon.maameow.domain.usecase.TaskStartMode
 import com.aliothmoon.maameow.maa.callback.CopilotRuntimeStateStore
 import com.aliothmoon.maameow.maa.task.MaaTaskType
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogConfirmAction
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogType
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogUiState
-import com.aliothmoon.maameow.remote.AppAliveStatus
 import com.aliothmoon.maameow.utils.i18n.UiText
 import com.aliothmoon.maameow.utils.i18n.resolve
 import com.aliothmoon.maameow.utils.i18n.uiTextDynamic
@@ -43,17 +46,17 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-private const val TAB_MAIN = 0
-private const val TAB_SSS = 1
-private const val TAB_PARADOX = 2
-private const val TAB_OTHER_ACTIVITY = 3
+private const val TAB_MAIN = CopilotTabs.MAIN
+private const val TAB_SSS = CopilotTabs.SSS
+private const val TAB_PARADOX = CopilotTabs.PARADOX
+private const val TAB_OTHER_ACTIVITY = CopilotTabs.OTHER_ACTIVITY
 private val DIRECT_STAGE_NAME_REGEX = Regex("""^[0-9a-z-]+$""")
 private val STAGE_NAME_REGEX =
     Regex(
         """[a-z]{0,3}\d{0,2}-(?:(?:A|B|C|D|EX|S|TR|MO)-?)?\d{1,2}""",
         RegexOption.IGNORE_CASE
     )
-private val SIDE_STORY_STAGE_ID_REGEX = Regex("""^(act\d+(side|mini)|a00\d+)_""")
+private val SIDE_STORY_STAGE_ID_REGEX = Regex("""^(act\d+(side|mini|d\d+)|a00\d+)_""")
 private val MAIN_STAGE_ID_REGEX = Regex("""^(main|sub|tough|hard)_""")
 
 private enum class CopilotType(val tabIndex: Int) {
@@ -97,14 +100,26 @@ data class CopilotUiState(
     val currentFilePath: String = "",
     val copilotTaskName: String = "",
     val config: CopilotConfig = CopilotConfig(),
-    val useCopilotList: Boolean = false,
     val taskList: List<CopilotListItem> = emptyList(),
     val hasRequirementIgnored: Boolean = false,
     val isLoading: Boolean = false,
     val statusMessage: UiText = UiText.Empty,
     val videoUrl: String = "",
     val operatorSummary: OperatorSummaryData? = null,
-)
+    /** 干员需求自动校正的提示，随作业加载刷新 */
+    val requirementWarnings: List<UiText> = emptyList(),
+    val builtinPickerExpanded: Boolean = false,
+    val builtinLoaded: Boolean = false,
+    val builtinTree: List<CopilotResourceProvider.Node> = emptyList(),
+    val builtinExpandedFolders: Set<String> = emptySet(),
+) {
+    /** 用户偏好；是否生效看 listModeActive */
+    val useCopilotList: Boolean get() = config.useCopilotList
+
+    /** 切到不支持的页签不改写偏好，切回即恢复 */
+    val listModeActive: Boolean
+        get() = useCopilotList && CopilotTabs.supportsBattleList(tabIndex)
+}
 
 class CopilotViewModel(
     private val appContext: Context,
@@ -112,10 +127,10 @@ class CopilotViewModel(
     private val compositionService: MaaCompositionService,
     private val repository: CopilotRepository,
     private val resourceDataManager: ResourceDataManager,
+    private val copilotResourceProvider: CopilotResourceProvider,
     private val runtimeStateStore: CopilotRuntimeStateStore,
-    private val appAliveChecker: AppAliveChecker,
+    private val checkGameReadiness: CheckGameReadinessUseCase,
     private val chainState: TaskChainState,
-    private val appSettings: AppSettingsManager,
     private val achievementRepository: AchievementRepository,
 ) : ViewModel() {
 
@@ -131,7 +146,10 @@ class CopilotViewModel(
 
     val maaState: StateFlow<MaaExecutionState> = compositionService.state
 
-    private var gameNotRunningAcknowledged = false
+    private var pendingStartContext: TaskStartContext? = null
+
+    /** 确认后重入 onStart 时跳过列表被忽略的检查 */
+    private var listGuardAcknowledged = false
     private val pendingCopilotIds = mutableListOf<Int>()
     private val recentlyRatedCopilotIds = mutableSetOf<Int>()
     private val ratingInFlightCopilotIds = mutableSetOf<Int>()
@@ -206,12 +224,25 @@ class CopilotViewModel(
         _state.update { it.copy(inputText = text) }
     }
 
-    fun onParseSingleInput() {
-        parseInput(forceSet = false)
+    fun onPasteAndParse() {
+        val clipboard = appContext.getSystemService(ClipboardManager::class.java) ?: return
+        val text = clipboard.primaryClip
+            ?.takeIf { it.itemCount > 0 }
+            ?.getItemAt(0)
+            ?.coerceToText(appContext)
+            ?.toString()
+            .orEmpty()
+            .trim()
+        if (text.isBlank()) {
+            _state.update { it.copy(statusMessage = text(R.string.copilot_clipboard_empty)) }
+            return
+        }
+        onInputChanged(text)
+        onParseInput()
     }
 
-    fun onParseSetInput() {
-        parseInput(forceSet = true)
+    fun onParseInput() {
+        parseInput()
     }
 
     /**
@@ -221,15 +252,7 @@ class CopilotViewModel(
     fun onImportLocalFiles(files: List<Pair<String, String>>) {
         if (files.isEmpty()) return
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    isLoading = true,
-                    statusMessage = text(R.string.copilot_status_parsing),
-                    currentCopilot = null,
-                    operatorSummary = null,
-                    videoUrl = "",
-                )
-            }
+            _state.update { it.startingParse() }
             var successCount = 0
             var lastData: CopilotTaskData? = null
             var lastFilePath = ""
@@ -240,15 +263,16 @@ class CopilotViewModel(
                     Timber.w(e, "$TAG: 解析本地文件失败: $fileName")
                     continue
                 }
-                val filePath = repository.saveCopilotJsonByName(fileName, json)
+                val fixed = correctRequirements(data, json, copilotId = 0)
+                val filePath = repository.saveCopilotJsonByName(fileName, fixed.json)
                 successCount++
-                lastData = data
+                lastData = fixed.data
                 lastFilePath = filePath
-                lastJson = json
+                lastJson = fixed.json
 
-                if (files.size > 1 || _state.value.useCopilotList) {
+                if (files.size > 1 || _state.value.listModeActive) {
                     autoAddLoadedCopilotToListIfNeeded(
-                        data = data,
+                        data = fixed.data,
                         filePath = filePath,
                         copilotId = 0,
                         source = "local"
@@ -266,7 +290,7 @@ class CopilotViewModel(
                 return@launch
             }
 
-            if (files.size == 1 && !_state.value.useCopilotList) {
+            if (files.size == 1 && !_state.value.listModeActive) {
                 applyLoadedCopilot(
                     data = lastData!!,
                     json = lastJson,
@@ -285,34 +309,99 @@ class CopilotViewModel(
         }
     }
 
-    private fun parseInput(forceSet: Boolean) {
+    fun onToggleBuiltinPicker() {
+        val expand = !_state.value.builtinPickerExpanded
+        _state.update { it.copy(builtinPickerExpanded = expand) }
+        if (expand && !_state.value.builtinLoaded) {
+            loadBuiltinTree()
+        }
+    }
+
+    private fun loadBuiltinTree() {
+        viewModelScope.launch {
+            val tree = copilotResourceProvider.loadTree()
+            _state.update { it.copy(builtinTree = tree, builtinLoaded = true) }
+        }
+    }
+
+    fun onToggleBuiltinFolder(relativePath: String) {
+        _state.update {
+            val folders = it.builtinExpandedFolders
+            val next =
+                if (relativePath in folders) folders - relativePath else folders + relativePath
+            it.copy(builtinExpandedFolders = next)
+        }
+    }
+
+    fun onSelectBuiltinFile(node: CopilotResourceProvider.Node) {
+        val path = node.fullPath ?: return
+        viewModelScope.launch {
+            _state.update { it.startingParse() }
+            copilotManager.parseFromFile(path).fold(
+                onSuccess = { (data, json) ->
+                    val fixed = correctRequirements(data, json, copilotId = 0)
+                    // 内置资源目录只读，改过的作业另存一份到 copilot 目录
+                    val filePath = if (fixed.json != json) {
+                        repository.saveCopilotJsonByName(node.name, fixed.json)
+                    } else {
+                        path
+                    }
+                    applyLoadedCopilot(
+                        data = fixed.data,
+                        json = fixed.json,
+                        filePath = filePath,
+                        copilotId = 0,
+                        fromWeb = false
+                    )
+                    autoAddLoadedCopilotToListIfNeeded(
+                        data = fixed.data,
+                        filePath = filePath,
+                        copilotId = 0,
+                        source = "resource"
+                    )
+                    _state.update { it.copy(builtinPickerExpanded = false) }
+                },
+                onFailure = { e ->
+                    _state.update {
+                        it.copy(isLoading = false, statusMessage = fileReadErrorMessage(e))
+                    }
+                    Timber.e(e, "$TAG: failed to load builtin copilot: %s", path)
+                }
+            )
+        }
+    }
+
+    /** 进入「开始解析」时对 UI 状态的统一重置。 */
+    private fun CopilotUiState.startingParse(): CopilotUiState = copy(
+        isLoading = true,
+        statusMessage = text(R.string.copilot_status_parsing),
+        currentCopilot = null,
+        operatorSummary = null,
+        videoUrl = "",
+        requirementWarnings = emptyList(),
+    )
+
+    /** 文件读取失败时的状态消息：有明细则附带明细，否则用通用文案。 */
+    private fun fileReadErrorMessage(e: Throwable): UiText {
+        val detail = e.message.orEmpty().trim()
+        return if (detail.isEmpty()) {
+            text(R.string.copilot_file_read_error)
+        } else {
+            text(R.string.copilot_file_read_error_with_detail, detail)
+        }
+    }
+
+    private fun parseInput() {
         val input = _state.value.inputText.trim()
         if (input.isEmpty()) return
 
         viewModelScope.launch {
-            _state.update {
-                it.copy(
-                    isLoading = true,
-                    statusMessage = text(R.string.copilot_status_parsing),
-                    currentCopilot = null,
-                    operatorSummary = null,
-                    videoUrl = "",
-                )
-            }
-            if (forceSet || copilotManager.isSetId(input)) {
-                val tabIndex = _state.value.tabIndex
-                if (!supportsCopilotSetImport(tabIndex)) {
-                    _state.update {
-                        it.copy(
-                            isLoading = false,
-                            statusMessage = text(
-                                R.string.copilot_set_import_unsupported,
-                                currentTabDisplayName(tabIndex)
-                            )
-                        )
-                    }
-                    return@launch
-                }
+            _state.update { it.startingParse() }
+            // 神秘代码自带类型信息（prts:// 单作业、prts://s / s 前缀作业集），
+            // 旧格式（maa://、纯数字）无法区分，默认当单个作业（与 WPF 6.16 对齐）
+            val code = copilotManager.parseCopilotCode(input)
+            val asSet = code?.type == CopilotCodeType.COPILOT_SET
+            if (asSet) {
                 importCopilotSet(input)
             } else {
                 parseSingleCopilot(input)
@@ -324,23 +413,27 @@ class CopilotViewModel(
         val result = copilotManager.parseFromId(input)
         result.fold(
             onSuccess = { (id, data, json) ->
-                val filePath = repository.saveCopilotJson(id, json)
+                val fixed = correctRequirements(data, json, id)
+                val filePath = repository.saveCopilotJson(id, fixed.json)
                 applyLoadedCopilot(
-                    data = data,
-                    json = json,
+                    data = fixed.data,
+                    json = fixed.json,
                     filePath = filePath,
-                    copilotId = id,
+                    copilotId = fixed.copilotId,
                     fromWeb = true
                 )
                 autoAddLoadedCopilotToListIfNeeded(
-                    data = data,
+                    data = fixed.data,
                     filePath = filePath,
-                    copilotId = id,
+                    copilotId = fixed.copilotId,
                     source = "web"
                 )
             },
             onFailure = { remoteErr ->
-                val unsupportedLocalPath = input.contains("\\") || input.contains("/")
+                // 仅当输入连神秘代码都解析不出、且形似路径时才提示本地路径不支持，
+                // 避免 maa:// / prts:// 代码的网络失败被误报
+                val unsupportedLocalPath = remoteErr is CopilotRequestException.InvalidInput &&
+                        (input.contains("\\") || input.contains("/"))
                 _state.update {
                     it.copy(
                         isLoading = false,
@@ -387,13 +480,15 @@ class CopilotViewModel(
                     val copilotResult = copilotManager.parseFromId(id.toString())
                     copilotResult.fold(
                         onSuccess = { (copilotId, data, json) ->
-                            val filePath = repository.saveCopilotJson(copilotId, json)
-                            val resolvedTabIndex = resolveLoadedTabIndex(data, workingTabIndex)
+                            val fixed = correctRequirements(data, json, copilotId)
+                            val filePath = repository.saveCopilotJson(copilotId, fixed.json)
+                            val resolvedTabIndex =
+                                resolveLoadedTabIndex(fixed.data, workingTabIndex)
                             newItems.addAll(
                                 createListItemsForLoadedCopilot(
-                                    data = data,
+                                    data = fixed.data,
                                     filePath = filePath,
-                                    copilotId = copilotId,
+                                    copilotId = fixed.copilotId,
                                     source = "web"
                                 )
                             )
@@ -420,14 +515,17 @@ class CopilotViewModel(
                 } else {
                     text(R.string.copilot_status_imported_set, newItems.size, ids.size)
                 }
-                val previousTabIndex = _state.value.tabIndex
                 _state.update { current ->
                     val base = applyTabConstraints(current, workingTabIndex)
                     val listModeEnabled = supportsBattleList(workingTabIndex)
                     base.copy(
                         taskList = base.taskList + newItems,
-                        useCopilotList = listModeEnabled,
-                        config = if (listModeEnabled) base.config.copy(formation = true) else base.config,
+                        // 不支持列表的页签保留用户偏好，不清掉
+                        config = if (listModeEnabled) {
+                            base.config.copy(useCopilotList = true, formation = true)
+                        } else {
+                            base.config
+                        },
                         isLoading = false,
                         statusMessage = buildSetStatusMessage(
                             setName = setInfo.name,
@@ -436,9 +534,7 @@ class CopilotViewModel(
                         )
                     )
                 }
-                if (previousTabIndex != workingTabIndex) {
-                    persistConfig()
-                }
+                persistConfig()
                 persistTaskList()
             },
             onFailure = { e ->
@@ -490,6 +586,64 @@ class CopilotViewModel(
         summary: UiText
     ): UiText = uiTextLines(uiTextDynamic(setName), uiTextDynamic(setDescription), summary)
 
+    /** 校正结果，[copilotId] 在作业被改动后清零 */
+    private data class CorrectedCopilot(
+        val data: CopilotTaskData,
+        val json: String,
+        val copilotId: Int,
+    )
+
+    /**
+     * 落盘前统一做一次干员需求校正
+     * 改动过的作业不再带原作业 id，免得把改后的跑法算到原作者头上
+     */
+    private fun correctRequirements(
+        data: CopilotTaskData,
+        json: String,
+        copilotId: Int,
+    ): CorrectedCopilot {
+        val result = CopilotRequirementCorrector.correct(json) { name ->
+            resourceDataManager.getCharacterByNameOrAlias(name)
+                ?.let { CopilotRequirementCorrector.OperatorInfo(it.rarity, it.id) }
+        }
+        if (result.corrections.isEmpty()) {
+            return CorrectedCopilot(data, json, copilotId)
+        }
+        // 作业集会连着导入多份，逐条累加而不是覆盖；每次解析开始时由 startingParse 清空
+        val messages = result.corrections.map(::describeCorrection)
+        _state.update { it.copy(requirementWarnings = it.requirementWarnings + messages) }
+        // 失败了内存和落盘会不一致，得留痕
+        val reparsed = copilotManager.parseJson(result.json).fold(
+            onSuccess = { it },
+            onFailure = {
+                Timber.w(it, "$TAG: 校正后重解析失败，沿用校正前的解析结果")
+                data
+            },
+        )
+        return CorrectedCopilot(
+            data = reparsed,
+            json = result.json,
+            copilotId = if (result.altered) 0 else copilotId,
+        )
+    }
+
+    private fun describeCorrection(correction: CopilotRequirementCorrector.Correction): UiText =
+        when (correction.kind) {
+            CopilotRequirementCorrector.Kind.UNSUPPORTED_SKILL ->
+                text(R.string.copilot_unsupported_skill, correction.operatorName, correction.from)
+
+            CopilotRequirementCorrector.Kind.ELITE_FILLED ->
+                text(R.string.copilot_elite_filled, correction.operatorName, correction.to)
+
+            CopilotRequirementCorrector.Kind.ELITE_RAISED ->
+                text(
+                    R.string.copilot_elite_raised,
+                    correction.operatorName,
+                    correction.from,
+                    correction.to
+                )
+        }
+
     private fun applyLoadedCopilot(
         data: CopilotTaskData,
         json: String,
@@ -501,7 +655,7 @@ class CopilotViewModel(
         val targetTabIndex = resolveLoadedTabIndex(data, previousTabIndex)
         val inferredType = inferTaskType(data)
         val inferredName = inferLoadedCopilotName(data)
-        val videoUrl = extractVideoUrl(data.doc.details)
+        val videoUrl = copilotManager.extractVideoUrl(data.doc.details)
         val operatorSummary = copilotManager.getOperatorSummary(data)
         _state.update { current ->
             val base = applyTabConstraints(current, targetTabIndex)
@@ -532,8 +686,7 @@ class CopilotViewModel(
         source: String
     ) {
         val snapshot = _state.value
-        val tabIndex = snapshot.tabIndex
-        if (!snapshot.useCopilotList || !supportsBattleList(tabIndex)) {
+        if (!snapshot.listModeActive) {
             return
         }
 
@@ -630,7 +783,6 @@ class CopilotViewModel(
     }
 
     private fun applyTabConstraints(state: CopilotUiState, tabIndex: Int): CopilotUiState {
-        val listAllowed = supportsBattleList(tabIndex)
         val regularCopilotOptionsAllowed = supportsRegularCopilotOptions(tabIndex)
         val newConfig = if (regularCopilotOptionsAllowed) {
             state.config
@@ -647,7 +799,6 @@ class CopilotViewModel(
         }
         return state.copy(
             tabIndex = tabIndex,
-            useCopilotList = if (listAllowed) state.useCopilotList else false,
             config = newConfig
         )
     }
@@ -722,7 +873,8 @@ class CopilotViewModel(
             data.opers.firstOrNull()?.name,
             data.stageName
         )
-        return candidates.firstOrNull { !it.isNullOrBlank() } ?: string(R.string.copilot_unknown_operator)
+        return candidates.firstOrNull { !it.isNullOrBlank() }
+            ?: string(R.string.copilot_unknown_operator)
     }
 
     private fun extractParadoxCodeName(stageId: String?): String? {
@@ -775,8 +927,10 @@ class CopilotViewModel(
         }
         _state.update {
             it.copy(
-                useCopilotList = enabled,
-                config = if (enabled) it.config.copy(formation = true) else it.config
+                config = it.config.copy(
+                    useCopilotList = enabled,
+                    formation = enabled || it.config.formation
+                )
             )
         }
         persistConfig()
@@ -866,24 +1020,24 @@ class CopilotViewModel(
                             currentJsonContent = json,
                             currentFilePath = item.filePath,
                             copilotTaskName = item.name.ifBlank { inferLoadedCopilotName(data) },
-                            useCopilotList = if (disableListMode) false else base.useCopilotList,
-                            statusMessage = text(R.string.copilot_status_selected_list_item, item.name)
+                            config = if (disableListMode) {
+                                base.config.copy(useCopilotList = false)
+                            } else {
+                                base.config
+                            },
+                            statusMessage = text(
+                                R.string.copilot_status_selected_list_item,
+                                item.name
+                            )
                         )
                     }
-                    if (previousTabIndex != targetTabIndex) {
+                    if (previousTabIndex != targetTabIndex || disableListMode) {
                         persistConfig()
                     }
                 },
                 onFailure = { e ->
-                    val detail = e.message.orEmpty().trim()
                     _state.update {
-                        it.copy(
-                            statusMessage = if (detail.isEmpty()) {
-                                text(R.string.copilot_file_read_error)
-                            } else {
-                                text(R.string.copilot_file_read_error_with_detail, detail)
-                            }
-                        )
+                        it.copy(statusMessage = fileReadErrorMessage(e))
                     }
                 }
             )
@@ -920,25 +1074,32 @@ class CopilotViewModel(
         persistTaskList()
     }
 
-    fun onReorderList(from: Int, to: Int) {
+    /** 落盘交给 onReorderSettled，避免拖拽中每次交换都写文件 */
+    fun onReorderList(fromId: String, toId: String) {
+        if (fromId == toId) return
         _state.update {
             val list = it.taskList.toMutableList()
-            if (from in list.indices && to in list.indices) {
-                val item = list.removeAt(from)
-                list.add(to, item)
-            }
+            val from = list.indexOfFirst { item -> item.id == fromId }
+            val to = list.indexOfFirst { item -> item.id == toId }
+            if (from < 0 || to < 0) return@update it
+            list.add(to, list.removeAt(from))
             it.copy(taskList = list)
         }
+    }
+
+    fun onReorderSettled() {
         persistTaskList()
     }
 
     fun onDialogConfirm() {
         when (_dialog.value?.confirmAction) {
             PanelDialogConfirmAction.CONFIRM_PENDING_START -> {
+                val pending = pendingStartContext
                 _dialog.value = null
-                gameNotRunningAcknowledged = true
-                onStart()
+                pendingStartContext = null
+                if (pending != null) onStart(pending)
             }
+
             else -> {
                 _dialog.value = null
             }
@@ -947,39 +1108,60 @@ class CopilotViewModel(
 
     fun onDialogDismiss() {
         _dialog.value = null
+        clearPendingStart()
     }
 
-    fun onStart() {
+    private fun clearPendingStart() {
+        pendingStartContext = null
+        listGuardAcknowledged = false
+    }
+
+    fun onStart() = onStart(TaskStartContext(TaskStartMode.MANUAL))
+
+    private fun onStart(context: TaskStartContext) {
         viewModelScope.launch {
             val snapshot = _state.value
             if (!validateStart(snapshot)) return@launch
 
-            val pkg = Packages[chainState.getClientType()]
-            if (pkg != null) {
-                val aliveStatus = appAliveChecker.isAppAlive(pkg)
-                if (!gameNotRunningAcknowledged && aliveStatus == AppAliveStatus.DEAD) {
+            // 列表有勾选项但未启用列表模式，用户多半以为会接着列表打
+            if (!listGuardAcknowledged && shouldWarnListIgnored(snapshot)) {
+                listGuardAcknowledged = true
+                pendingStartContext = context
+                _dialog.value = appContext.createStartWarningDialog(
+                    text(
+                        R.string.copilot_list_ignored_warning,
+                        snapshot.taskList.count { it.isChecked }
+                    )
+                )
+                return@launch
+            }
+
+            when (val readiness = checkGameReadiness(
+                clientType = chainState.clientType,
+                launchesGame = false,
+                context = context,
+            )) {
+                is GameReadiness.RequiresConfirmation -> {
+                    pendingStartContext = context.acknowledged(readiness.acknowledgement)
                     _dialog.value = appContext.createStartWarningDialog(
-                        appContext.resolveGameNotRunningWarningMessage()
+                        appContext.resolveTaskStartConfirmationMessage(readiness.acknowledgement)
                     )
                     return@launch
                 }
-                if (aliveStatus == AppAliveStatus.ALIVE
-                    && appSettings.runMode.value == RunMode.BACKGROUND
-                ) {
-                    val onVd = appAliveChecker.isAppOnBackgroundDisplay(pkg)
-                    if (onVd == false) {
-                        gameNotRunningAcknowledged = false
-                        _dialog.value = appContext.createStartBlockedDialog(
-                            uiTextOf(R.string.task_start_error_game_not_on_background_display)
-                        )
-                        return@launch
-                    }
+
+                is GameReadiness.Blocked -> {
+                    clearPendingStart()
+                    _dialog.value = appContext.createStartBlockedDialog(
+                        appContext.resolveTaskStartBlockedMessage(readiness.reason)
+                    )
+                    return@launch
                 }
+
+                is GameReadiness.Ready -> clearPendingStart()
             }
-            gameNotRunningAcknowledged = false
 
             val config = buildEffectiveConfig(snapshot)
-            val tasks = if (snapshot.useCopilotList) {
+            val tasks = if (snapshot.listModeActive) {
                 val checked = snapshot.taskList.filter { it.isChecked }
                 pendingCopilotIds.clear()
                 pendingCopilotIds.addAll(checked.map { it.copilotId }.filter { it > 0 })
@@ -1014,8 +1196,14 @@ class CopilotViewModel(
         launchRateCopilot(id = id, isLike = isLike, updateStatusMessage = true)
     }
 
+    private fun shouldWarnListIgnored(snapshot: CopilotUiState): Boolean {
+        return !snapshot.listModeActive &&
+                CopilotTabs.supportsBattleList(snapshot.tabIndex) &&
+                snapshot.taskList.any { it.isChecked }
+    }
+
     private suspend fun validateStart(snapshot: CopilotUiState): Boolean {
-        if (snapshot.useCopilotList) {
+        if (snapshot.listModeActive) {
             return validateTaskListStrict(snapshot.taskList)
         }
 
@@ -1065,7 +1253,11 @@ class CopilotViewModel(
         }
 
         if (types.size > 1) {
-            _state.update { it.copy(statusMessage = text(R.string.copilot_mixed_list)) }
+            val typeNames = uiTextJoin(
+                *types.map { currentTabDisplayName(it.tabIndex) }.toTypedArray(),
+                separator = uiTextDynamic(", ")
+            )
+            _state.update { it.copy(statusMessage = text(R.string.copilot_mixed_list, typeNames)) }
             return false
         }
 
@@ -1138,21 +1330,14 @@ class CopilotViewModel(
         return true
     }
 
-    private fun supportsBattleList(tabIndex: Int): Boolean {
-        return tabIndex == TAB_MAIN || tabIndex == TAB_PARADOX || tabIndex == TAB_SSS
-    }
+    private fun supportsBattleList(tabIndex: Int): Boolean =
+        CopilotTabs.supportsBattleList(tabIndex)
 
-    private fun supportsRegularCopilotOptions(tabIndex: Int): Boolean {
-        return tabIndex == TAB_MAIN || tabIndex == TAB_OTHER_ACTIVITY
-    }
+    private fun supportsRegularCopilotOptions(tabIndex: Int): Boolean =
+        CopilotTabs.supportsRegularCopilotOptions(tabIndex)
 
-    private fun supportsCopilotSetImport(tabIndex: Int): Boolean {
-        return tabIndex == TAB_MAIN || tabIndex == TAB_PARADOX || tabIndex == TAB_SSS
-    }
-
-    private fun supportsLoopCount(tabIndex: Int): Boolean {
-        return tabIndex == TAB_SSS || tabIndex == TAB_OTHER_ACTIVITY
-    }
+    private fun supportsLoopCount(tabIndex: Int): Boolean =
+        CopilotTabs.supportsLoopCount(tabIndex)
 
 
     private fun resolveSingleTaskType(snapshot: CopilotUiState): MaaTaskType {
@@ -1182,7 +1367,7 @@ class CopilotViewModel(
         if (!supportsLoopCount(snapshot.tabIndex)) {
             config = config.copy(loop = false, loopTimes = 1)
         }
-        if (!(snapshot.useCopilotList && snapshot.tabIndex == TAB_MAIN)) {
+        if (!(snapshot.listModeActive && snapshot.tabIndex == TAB_MAIN)) {
             config = config.copy(useSanityPotion = false)
         }
         return config
@@ -1194,16 +1379,17 @@ class CopilotViewModel(
         }
 
         val current = _state.value
-        if (!current.useCopilotList) return
+        if (!current.listModeActive) return
 
         // 上游 #16985: 优先用 core 回传的当前作业下标(跳过失败后下标可能不是第一个勾选项);
         // 回传缺失(-1)或越界/已取消时回退旧行为(第一个勾选项)。
         val tracked = runtimeStateStore.currentCopilotIndex.value
-        val index = if (tracked in current.taskList.indices && current.taskList[tracked].isChecked) {
-            tracked
-        } else {
-            current.taskList.indexOfFirst { it.isChecked }
-        }
+        val index =
+            if (tracked in current.taskList.indices && current.taskList[tracked].isChecked) {
+                tracked
+            } else {
+                current.taskList.indexOfFirst { it.isChecked }
+            }
         if (index !in current.taskList.indices) return
 
         val completed = current.taskList[index]
@@ -1249,12 +1435,6 @@ class CopilotViewModel(
                 ratingInFlightCopilotIds.remove(id)
             }
         }
-    }
-
-    private fun extractVideoUrl(details: String): String {
-        if (details.isBlank()) return ""
-        val match = Regex("[aAbB][vV]\\d+").find(details) ?: return ""
-        return "https://www.bilibili.com/video/${match.value}"
     }
 
     private fun persistTaskList() {

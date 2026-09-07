@@ -1,6 +1,7 @@
 package com.aliothmoon.maameow
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import android.view.ViewTreeObserver
 import android.view.WindowManager
@@ -8,8 +9,15 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -19,28 +27,43 @@ import com.aliothmoon.maameow.data.achievement.AchievementRepository
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
-import com.aliothmoon.maameow.overlay.screensaver.HardwareScreenOffManager
 import com.aliothmoon.maameow.overlay.screensaver.ScreenSaverOverlayManager
+import com.aliothmoon.maameow.presentation.ProvideInputFocusManager
 import com.aliothmoon.maameow.presentation.navigation.AppNavigation
+import com.aliothmoon.maameow.presentation.pip.LocalIsInPip
+import com.aliothmoon.maameow.presentation.pip.PipController
+import com.aliothmoon.maameow.presentation.pip.PipHost
+import com.aliothmoon.maameow.presentation.pip.PipRequest
 import com.aliothmoon.maameow.presentation.viewmodel.BackgroundTaskViewModel
-import com.aliothmoon.maameow.schedule.model.ScheduledExecutionRequest
+import com.aliothmoon.maameow.schedule.LaunchIntentMapper
 import com.aliothmoon.maameow.theme.MaaMeowTheme
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.androidx.viewmodel.ext.android.viewModel
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), PipHost {
 
     @Volatile
     private var isUiReady: Boolean = false
+
+    /** 系统栏是否由屏保收起 */
+    private var systemBarsHiddenBySaver: Boolean = false
+
+    @Volatile
+    override var pipRequest: PipRequest? = null
+
+    private val _isInPictureInPicture = MutableStateFlow(false)
+    override val isInPictureInPicture: StateFlow<Boolean> = _isInPictureInPicture.asStateFlow()
 
     private val appSettingsManager: AppSettingsManager by inject()
     private val achievementRepository: AchievementRepository by inject()
     private val compositionService: MaaCompositionService by inject()
     private val screenSaverManager: ScreenSaverOverlayManager by inject()
-    private val hardwareScreenOffManager: HardwareScreenOffManager by inject()
     private val backgroundTaskViewModel: BackgroundTaskViewModel by viewModel()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -56,6 +79,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         doObserveKeepScreenOn()
+        doObserveScreenSaverBars()
         doObserveThemeMode()
         window.decorView.viewTreeObserver.addOnPreDrawListener(object :
             ViewTreeObserver.OnPreDrawListener {
@@ -67,9 +91,31 @@ class MainActivity : AppCompatActivity() {
         })
         setContent {
             val themeMode by appSettingsManager.themeMode.collectAsStateWithLifecycle()
+            val useSystemMonetColor by appSettingsManager.useSystemMonetColor.collectAsStateWithLifecycle()
+            val fontSizeScale by appSettingsManager.fontSizeScale.collectAsStateWithLifecycle()
 
-            MaaMeowTheme(themeMode = themeMode) {
-                AppNavigation(backgroundTaskViewModel = backgroundTaskViewModel)
+            val isInPip by _isInPictureInPicture.collectAsStateWithLifecycle()
+
+            MaaMeowTheme(themeMode = themeMode, useSystemMonetColor = useSystemMonetColor) {
+                val baseDensity = LocalDensity.current
+                val configuration = LocalConfiguration.current
+                val effectiveScale = AppSettingsManager.resolveFontSizeScale(
+                    stored = fontSizeScale,
+                    smallestWidthDp = configuration.smallestScreenWidthDp,
+                    fontScale = baseDensity.fontScale,
+                )
+                CompositionLocalProvider(
+                    LocalIsInPip provides isInPip,
+                    LocalDensity provides Density(
+                        density = baseDensity.density * effectiveScale / 100f,
+                        // 主界面保持系统 fontScale（与历史行为一致）
+                        fontScale = baseDensity.fontScale,
+                    )
+                ) {
+                    ProvideInputFocusManager {
+                        AppNavigation(backgroundTaskViewModel = backgroundTaskViewModel)
+                    }
+                }
             }
         }
     }
@@ -80,10 +126,29 @@ class MainActivity : AppCompatActivity() {
         dispatchScheduledLaunchIntent(intent)
     }
 
+    /** API 28~30 没有 auto-enter，只能在这里手动进画中画 */
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        val request = pipRequest ?: return
+        PipController.enterNow(this, request)
+    }
+
+    override fun onPictureInPictureModeChanged(
+        isInPictureInPictureMode: Boolean,
+        newConfig: Configuration,
+    ) {
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
+        _isInPictureInPicture.value = isInPictureInPictureMode
+    }
+
     private fun dispatchScheduledLaunchIntent(intent: Intent?) {
-        val request = ScheduledExecutionRequest.fromIntent(intent)
-            ?: ScheduledExecutionRequest.fromExternalIntent(intent)
-        request?.let { backgroundTaskViewModel.onScheduledLaunch(it) }
+        // SHOW：仅拉起 UI，禁止二次 execute（Service 已拥有 Schedule 管线）
+        if (LaunchIntentMapper.isShowScheduleIntent(intent)) {
+            return
+        }
+        LaunchIntentMapper.fromExternalIntent(this, intent)?.let { request ->
+            backgroundTaskViewModel.onExternalLaunch(request)
+        }
     }
 
     private fun doObserveKeepScreenOn() {
@@ -92,17 +157,39 @@ class MainActivity : AppCompatActivity() {
                 combine(
                     compositionService.state,
                     screenSaverManager.showing,
-                    hardwareScreenOffManager.active,
-                ) { taskState, saverShowing, hwScreenOff ->
+                    appSettingsManager.useHardwareScreenOff,
+                ) { taskState, saverShowing, hwFeatureEnabled ->
                     val taskActive = taskState == MaaExecutionState.STARTING
                             || taskState == MaaExecutionState.RUNNING
                             || taskState == MaaExecutionState.STOPPING
-                    taskActive || saverShowing || hwScreenOff
+                    // 启用硬件熄屏功能后，前台时始终保持屏幕常亮、与任务状态解耦：
+                    // 确保系统不会自动休眠/锁屏而中断正在运行的任务，硬件熄屏也无需再维护状态。
+                    hwFeatureEnabled || taskActive || saverShowing
                 }.collect { keepOn ->
                     if (keepOn) {
                         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                     } else {
                         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                    }
+                }
+            }
+        }
+    }
+
+    /** 屏保时收系统栏；标记挂 Activity 上以便 STOPPED 后仍能恢复 */
+    private fun doObserveScreenSaverBars() {
+        lifecycleScope.launch {
+            repeatOnLifecycle(Lifecycle.State.STARTED) {
+                val controller = WindowCompat.getInsetsController(window, window.decorView)
+                screenSaverManager.showing.collect { showing ->
+                    if (showing) {
+                        controller.hide(WindowInsetsCompat.Type.systemBars())
+                        controller.systemBarsBehavior =
+                            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                        systemBarsHiddenBySaver = true
+                    } else if (systemBarsHiddenBySaver) {
+                        controller.show(WindowInsetsCompat.Type.systemBars())
+                        systemBarsHiddenBySaver = false
                     }
                 }
             }

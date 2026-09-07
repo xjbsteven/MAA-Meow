@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.view.settings
 
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,11 +18,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material3.AlertDialog
-import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -37,12 +33,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -52,13 +46,12 @@ import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.log.LogEntry
 import com.aliothmoon.maameow.data.log.LogFileInfo
-import com.aliothmoon.maameow.domain.service.LogExportService
+import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
+import com.aliothmoon.maameow.presentation.components.LogExportController
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.viewmodel.LogHistoryViewModel
 import com.aliothmoon.maameow.theme.LogTypography
-import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
-import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -67,16 +60,18 @@ import java.time.format.DateTimeFormatter
 fun LogHistoryView(
     navController: NavController,
     viewModel: LogHistoryViewModel = koinViewModel(),
-    logExportService: LogExportService = koinInject()
 ) {
     val logFiles by viewModel.logFiles.collectAsStateWithLifecycle()
     val selectedLogEntries by viewModel.selectedLogEntries.collectAsStateWithLifecycle()
     val selectedFileName by viewModel.selectedFileName.collectAsStateWithLifecycle()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
 
-    val context = LocalContext.current
-    val coroutineScope = rememberCoroutineScope()
-    val exportChooserTitle = stringResource(R.string.settings_log_export_chooser_title)
+    var showExportSheet by remember { mutableStateOf(false) }
+
+    LogExportController(
+        sheetVisible = showExportSheet,
+        onSheetDismiss = { showExportSheet = false },
+    )
 
     // 拦截系统返回键：详情页时先回到列表
     BackHandler(enabled = selectedLogEntries != null) {
@@ -97,19 +92,7 @@ fun LogHistoryView(
             onFileClick = { viewModel.loadLogContent(it) },
             onFileDelete = { viewModel.deleteLogFile(it) },
             onCleanup = { viewModel.cleanupOldLogs() },
-            onExport = {
-                coroutineScope.launch {
-                    val intent = logExportService.exportAllLogs()
-                    if (intent != null) {
-                        context.startActivity(
-                            Intent.createChooser(
-                                intent,
-                                exportChooserTitle
-                            )
-                        )
-                    }
-                }
-            },
+            onExport = { showExportSheet = true },
             onBack = { navController.navigateUp() }
         )
     }
@@ -160,7 +143,10 @@ private fun LogFileListView(
                         )
                     }
                     TextButton(onClick = onCleanup) {
-                        Text(stringResource(R.string.log_cleanup_30_days), color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            stringResource(R.string.log_cleanup_30_days),
+                            color = MaterialTheme.colorScheme.primary
+                        )
                     }
                 }
             )
@@ -185,7 +171,7 @@ private fun LogFileListView(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(
@@ -318,6 +304,7 @@ private fun LogDetailView(
                             Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
+
                     is LogEntry.Log -> {
                         val color = getLogLevelColor(entry.level)
                         Text(
@@ -326,6 +313,7 @@ private fun LogDetailView(
                             style = LogTypography.BodyMonospace
                         )
                     }
+
                     is LogEntry.Footer -> {
                         Column {
                             Spacer(modifier = Modifier.height(8.dp))
@@ -343,7 +331,9 @@ private fun LogDetailView(
                             )
                             Text(
                                 text = stringResource(R.string.log_detail_status, entry.status),
-                                color = if (entry.status == "COMPLETED") Color(0xFF4CAF50) else Color(0xFFF44336),
+                                color = if (entry.status == "COMPLETED") Color(0xFF4CAF50) else Color(
+                                    0xFFF44336
+                                ),
                                 style = LogTypography.BodyMonospace
                             )
                             Text(

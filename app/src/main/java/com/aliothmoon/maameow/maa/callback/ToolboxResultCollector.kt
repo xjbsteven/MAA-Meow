@@ -5,9 +5,10 @@ import com.aliothmoon.maameow.data.achievement.AchievementEvents
 import com.aliothmoon.maameow.data.achievement.AchievementRepository
 import com.aliothmoon.maameow.data.model.toolbox.DepotItem
 import com.aliothmoon.maameow.data.model.toolbox.OperBoxOperator
-import com.aliothmoon.maameow.data.model.toolbox.OperBoxResult
 import com.aliothmoon.maameow.data.model.toolbox.RecruitCalcResult
 import com.aliothmoon.maameow.data.model.toolbox.RecruitOperator
+import com.aliothmoon.maameow.data.repository.DepotRepository
+import com.aliothmoon.maameow.data.repository.OperBoxRepository
 import com.aliothmoon.maameow.data.resource.ResourceDataManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -17,17 +18,36 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-/**
- * 工具类任务的结构化结果收集器
- * 由 SubTaskHandler 在收到对应回调时转发数据
- */
+/** 像素画填色进度 */
+data class PixelPaintProgress(val done: Int, val total: Int, val color: Int)
+
+/** 工具类任务结果：SubTaskHandler 回调转发。 */
 class ToolboxResultCollector(
     private val resourceDataManager: ResourceDataManager,
     private val achievementRepository: AchievementRepository,
+    private val depotRepository: DepotRepository,
+    private val operBoxRepository: OperBoxRepository,
 ) {
-    private val achievementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val achievement = DoubleSyncAchievement()
 
-    // ==================== 公招识别 ====================
+    fun onSessionStart() {
+        achievement.clear()
+        _pixelPaintProgress.value = null
+    }
+
+    /** 像素画填色进度，来自 Core 的 PixelPaintProgress 回调 */
+    private val _pixelPaintProgress = MutableStateFlow<PixelPaintProgress?>(null)
+    val pixelPaintProgress: StateFlow<PixelPaintProgress?> = _pixelPaintProgress.asStateFlow()
+
+    /** 返回解析结果，免得调用方再解一遍 */
+    fun onPixelPaintProgress(details: JSONObject?): PixelPaintProgress? {
+        val done = details?.getIntValue("done") ?: return null
+        val progress =
+            PixelPaintProgress(done, details.getIntValue("total"), details.getIntValue("color"))
+        _pixelPaintProgress.value = progress
+        return progress
+    }
 
     private val _recruitTags = MutableStateFlow<List<String>>(emptyList())
     val recruitTags: StateFlow<List<String>> = _recruitTags.asStateFlow()
@@ -66,16 +86,6 @@ class ToolboxResultCollector(
         _recruitResults.value = emptyList()
     }
 
-    // ==================== 仓库识别 ====================
-
-    private val _depotItems = MutableStateFlow<List<DepotItem>>(emptyList())
-    val depotItems: StateFlow<List<DepotItem>> = _depotItems.asStateFlow()
-
-    /**
-     * 解析仓库识别结果。
-     * MaaCore 回调 taskchain="Depot" 时 details 格式：
-     * { "done": true, "data": "{\"30011\":200,...}" }
-     */
     fun onDepotResult(details: JSONObject?) {
         details ?: return
         if (!details.getBooleanValue("done")) return
@@ -85,9 +95,10 @@ class ToolboxResultCollector(
         val items = dataObj.entries.mapNotNull { (id, value) ->
             val count = (value as? Number)?.toInt() ?: return@mapNotNull null
             if (count > 0) DepotItem(id, count) else null
-        }.sortedBy { it.id }
-        _depotItems.value = items
-        achievementScope.launch {
+        }
+        depotRepository.set(items)
+        achievement.onDepotSuccess()
+        ioScope.launch {
             achievementRepository.report {
                 event = AchievementEvents.TOOLBOX_RESULT
                 "tool" to "Depot"
@@ -96,20 +107,6 @@ class ToolboxResultCollector(
         }
     }
 
-    fun clearDepot() {
-        _depotItems.value = emptyList()
-    }
-
-    // ==================== 干员识别 ====================
-
-    private val _operBoxResult = MutableStateFlow<OperBoxResult?>(null)
-    val operBoxResult: StateFlow<OperBoxResult?> = _operBoxResult.asStateFlow()
-
-    /**
-     * 解析干员识别结果。
-     * MaaCore 回调 taskchain="OperBox" 时 details 格式：
-     * { "done": true, "own_opers": [ { id, name, rarity, elite, level, potential, own } ] }
-     */
     fun onOperBoxResult(details: JSONObject?) {
         details ?: return
         if (!details.getBooleanValue("done")) return
@@ -129,7 +126,6 @@ class ToolboxResultCollector(
 
         val ownedIds = ownOpers.map { it.id }.toSet()
 
-        // 从全干员数据库中取差集，构建未拥有列表
         val notOwned = resourceDataManager.operators.value
             .filter { (id, _) -> id !in ownedIds }
             .map { (id, info) ->
@@ -144,29 +140,60 @@ class ToolboxResultCollector(
                 )
             }
 
-        _operBoxResult.value = OperBoxResult(
-            owned = ownOpers.sortedWith(compareByDescending<OperBoxOperator> { it.rarity }
+        val ownedSorted = ownOpers.sortedWith(
+            compareByDescending<OperBoxOperator> { it.rarity }
                 .thenByDescending { it.elite }
                 .thenByDescending { it.level }
-                .thenByDescending { it.potential }),
-            notOwned = notOwned.sortedByDescending { it.rarity },
+                .thenByDescending { it.potential },
         )
-        achievementScope.launch {
+        val notOwnedSorted = notOwned.sortedByDescending { it.rarity }
+
+        operBoxRepository.set(ownedSorted, notOwnedSorted)
+        achievement.onOperSuccess()
+        ioScope.launch {
             achievementRepository.report {
                 event = AchievementEvents.TOOLBOX_RESULT
                 "tool" to "OperBox"
                 "hasPallas" to ownOpers.any {
-                    it.name == "帕拉斯" || it.name.equals(
-                        "Pallas",
-                        ignoreCase = true
-                    )
+                    it.name == "帕拉斯" || it.name.equals("Pallas", ignoreCase = true)
                 }
-
             }
         }
     }
 
-    fun clearOperBox() {
-        _operBoxResult.value = null
+    /** 本会话 Oper+Depot 成功回调后上报 DepotOperBox。 */
+    private inner class DoubleSyncAchievement {
+        @Volatile
+        private var operDone = false
+
+        @Volatile
+        private var depotDone = false
+
+        fun clear() {
+            operDone = false
+            depotDone = false
+        }
+
+        fun onOperSuccess() {
+            operDone = true
+            tryReport()
+        }
+
+        fun onDepotSuccess() {
+            depotDone = true
+            tryReport()
+        }
+
+        private fun tryReport() {
+            if (!operDone || !depotDone) return
+            operDone = false
+            depotDone = false
+            ioScope.launch {
+                achievementRepository.report {
+                    event = AchievementEvents.TOOLBOX_RESULT
+                    "tool" to "DepotOperBox"
+                }
+            }
+        }
     }
 }

@@ -36,6 +36,9 @@ fun uiTextDynamic(value: String?): UiText =
         UiText.Dynamic(value)
     }
 
+fun uiTextDynamicOr(value: String?, @StringRes fallback: Int): UiText =
+    if (value.isNullOrBlank()) uiTextOf(fallback) else UiText.Dynamic(value)
+
 fun uiTextJoin(vararg parts: UiText, separator: UiText = UiText.Empty): UiText =
     UiText.Joined(parts = parts.filterNot { it is UiText.Empty }, separator = separator)
 

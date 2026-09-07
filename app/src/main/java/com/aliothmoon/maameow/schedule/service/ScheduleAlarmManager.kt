@@ -6,15 +6,20 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import com.aliothmoon.maameow.MainActivity
+import com.aliothmoon.maameow.data.preferences.AppSettingsManager
+import com.aliothmoon.maameow.domain.models.RunMode
+import com.aliothmoon.maameow.schedule.model.ScheduleStrategy
 import com.aliothmoon.maameow.schedule.model.ScheduleType
 import com.aliothmoon.maameow.schedule.model.ScheduledExecutionRequest
-import com.aliothmoon.maameow.schedule.model.ScheduleStrategy
 import timber.log.Timber
 import java.time.Instant
-import java.time.ZonedDateTime
 import java.time.ZoneId
+import java.time.ZonedDateTime
 
-class ScheduleAlarmManager(private val context: Context) {
+class ScheduleAlarmManager(
+    private val context: Context,
+    private val appSettingsManager: AppSettingsManager,
+) {
 
     companion object {
         const val ACTION_SCHEDULE_TRIGGER = "com.aliothmoon.maameow.SCHEDULE_TRIGGER"
@@ -26,8 +31,8 @@ class ScheduleAlarmManager(private val context: Context) {
 
     /**
      * 为策略注册下一个闹钟。
-     * 计算 computeNextTrigger，然后提前 COUNTDOWN_LEAD_SECONDS 触发（留给倒计时弹窗）。
-     * 如果没有下一个触发时间（策略禁用或无匹配日期），则不注册。
+     * 后台：提前 [ScheduledExecutionRequest.COUNTDOWN_SECONDS] 触发，留给倒计时弹窗
+     * 前台：准时触发（无倒计时）
      */
     fun scheduleNext(strategy: ScheduleStrategy, afterEpochMs: Long = 0L) {
         if (!strategy.enabled) {
@@ -42,34 +47,37 @@ class ScheduleAlarmManager(private val context: Context) {
         }
 
         val scheduledTimeMs = nextTrigger.toInstant().toEpochMilli()
-        val triggerMs = scheduledTimeMs - ScheduledExecutionRequest.COUNTDOWN_SECONDS * 1000L
+        val leadSec = if (appSettingsManager.runMode.value == RunMode.FOREGROUND) {
+            0
+        } else {
+            ScheduledExecutionRequest.COUNTDOWN_SECONDS
+        }
+        val triggerMs = scheduledTimeMs - leadSec * 1000L
 
         val pendingIntent = buildPendingIntent(strategy.id, scheduledTimeMs)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (alarmManager.canScheduleExactAlarms()) {
-                // 有精确闹钟权限：维持原行为，无副作用
-                alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pendingIntent)
-            } else {
-                // 无精确闹钟权限时，旧实现降级到 setAndAllowWhileIdle（inexact）。但 inexact 闹钟触发的广播
-                // 在 Android 12+ 无法启动前台服务（不在 FGS 后台启动豁免清单内），会导致定时任务永久空转。
-                // 改用 setAlarmClock：不需要 SCHEDULE_EXACT_ALARM、强制脱离 Doze 投递、且同属 exact 闹钟
-                // 而豁免前台服务后台启动限制。代价仅为状态栏多一个闹钟图标。
-                alarmManager.setAlarmClock(
-                    AlarmManager.AlarmClockInfo(triggerMs, buildShowIntent()),
-                    pendingIntent,
-                )
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !alarmManager.canScheduleExactAlarms()) {
+            // 没有精确闹钟权限时不能退化成 setAndAllowWhileIdle：inexact 闹钟发出的广播在 12+
+            // 不在前台服务后台启动的豁免清单里，服务起不来，定时会永久空转
+            // setAlarmClock 不要 SCHEDULE_EXACT_ALARM、强制脱 Doze 投递，且同属 exact 而享有豁免
+            // 代价只是状态栏多一个闹钟图标
+            alarmManager.setAlarmClock(
+                AlarmManager.AlarmClockInfo(triggerMs, buildShowIntent()),
+                pendingIntent,
+            )
         } else {
-            // API 28-30 没有前台服务后台启动限制，exact 闹钟即可可靠触发
-            alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerMs, pendingIntent)
+            alarmManager.setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                triggerMs,
+                pendingIntent
+            )
         }
 
         Timber.i(
             "已为策略 [%s] 注册闹钟，触发时间: %s（提前 %ds）",
             strategy.id,
             nextTrigger,
-            ScheduledExecutionRequest.COUNTDOWN_SECONDS
+            leadSec,
         )
     }
 
@@ -81,9 +89,22 @@ class ScheduleAlarmManager(private val context: Context) {
         Timber.i("已取消策略 [%s] 的闹钟", strategyId)
     }
 
-    /** 重新调度所有启用的策略 */
+    /** API 31 起用户可单独关掉精确闹钟；关了仍能定时（走 setAlarmClock），只是状态栏多个图标 */
+    fun canScheduleExact(): Boolean {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                alarmManager.canScheduleExactAlarms()
+        return ExactAlarmSettings.isAllowed(Build.VERSION.SDK_INT, granted)
+    }
+
+    /** 31 以下没有那个系统开关页，入口要藏掉，否则点了什么也不会发生 */
+    fun hasExactAlarmToggle(): Boolean = ExactAlarmSettings.hasToggle(Build.VERSION.SDK_INT)
+
+    /** 先撤后立：禁用与删除都会留下孤儿闹钟，重排时必须把已启用的整批过一遍 */
     fun rescheduleAll(strategies: List<ScheduleStrategy>) {
-        strategies.filter { it.enabled }.forEach { scheduleNext(it) }
+        strategies.forEach { strategy ->
+            cancel(strategy.id)
+            if (strategy.enabled) scheduleNext(strategy)
+        }
     }
 
     fun computeNextTrigger(strategy: ScheduleStrategy, afterEpochMs: Long = 0L): ZonedDateTime? {
@@ -96,7 +117,10 @@ class ScheduleAlarmManager(private val context: Context) {
     /**
      * [FIXED_TIME] 扫描未来 7 天，匹配 dayOfWeek + executionTimes。
      */
-    private fun computeNextFixedTime(strategy: ScheduleStrategy, afterEpochMs: Long): ZonedDateTime? {
+    private fun computeNextFixedTime(
+        strategy: ScheduleStrategy,
+        afterEpochMs: Long
+    ): ZonedDateTime? {
         if (strategy.daysOfWeek.isEmpty() || strategy.executionTimes.isEmpty()) {
             return null
         }
@@ -128,7 +152,10 @@ class ScheduleAlarmManager(private val context: Context) {
      * [INTERVAL] 从 startTimeMs 起，每隔 intervalMinutes 触发一次。
      * 计算公式: next = startTime + ceil((baseline - startTime) / interval) * interval
      */
-    private fun computeNextInterval(strategy: ScheduleStrategy, afterEpochMs: Long): ZonedDateTime? {
+    private fun computeNextInterval(
+        strategy: ScheduleStrategy,
+        afterEpochMs: Long
+    ): ZonedDateTime? {
         val startMs = strategy.startTimeMs ?: return null
         val intervalMs = (strategy.intervalMinutes ?: return null) * 60_000L
         if (intervalMs <= 0) return null

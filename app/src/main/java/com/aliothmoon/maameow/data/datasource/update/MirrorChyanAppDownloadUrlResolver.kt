@@ -1,12 +1,15 @@
 package com.aliothmoon.maameow.data.datasource.update
 
 import com.aliothmoon.maameow.BuildConfig
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.constant.MaaApi
 import com.aliothmoon.maameow.data.api.CdkRequiredException
 import com.aliothmoon.maameow.data.api.MirrorChyanApiClient
 import com.aliothmoon.maameow.data.model.update.UpdateChannel
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.domain.service.update.resolver.AppDownloadUrlResolver
+import com.aliothmoon.maameow.utils.i18n.LocalizedException
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 
 class MirrorChyanAppDownloadUrlResolver(
     private val apiClient: MirrorChyanApiClient,
@@ -29,7 +32,7 @@ class MirrorChyanAppDownloadUrlResolver(
                 "cdk" to cdk
             )
         ).map { data ->
-            data.url ?: throw Exception("下载链接为空")
+            data.url ?: throw LocalizedException(uiTextOf(R.string.update_error_empty_download_url))
         }
     }
 }

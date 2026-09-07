@@ -1,33 +1,29 @@
 package com.aliothmoon.maameow.domain.enums
 
-object UiUsageConstants {
-    val annihilations = listOf(
-        "当期剿灭" to "Annihilation",
-        "切尔诺伯格" to "Chernobog@Annihilation",
-        "龙门外环" to "LungmenOutskirts@Annihilation",
-        "龙门市区" to "LungmenDowntown@Annihilation"
-    )
+import com.aliothmoon.maameow.domain.enums.UiUsageConstants.USER_DEFINED_INFRAST
 
+
+object UiUsageConstants {
     /** 用户自定义文件的 key */
     const val USER_DEFINED_INFRAST = "user_defined"
 
     /**
-     * 内置自定义基建配置预设
-     * Pair<文件名(不含.json), 显示名称>
-     * 对应 WPF: DefaultInfrastList
+     * 内置自定义基建配置预设 key
+     * 用户自定义为 [USER_DEFINED_INFRAST]，其余为 resource 下文件名
+     * 展示文案见 strings `panel_infrast_preset_*`
      */
     val defaultInfrastPresets = listOf(
-        USER_DEFINED_INFRAST to "自定义文件",
-        "153_layout_3_times_a_day.json" to "153 一天 3 换",
-        "153_layout_4_times_a_day.json" to "153 一天 4 换",
-        "243_layout_3_times_a_day.json" to "243 一天 3 换",
-        "243_layout_4_times_a_day.json" to "243 一天 4 换",
-        "333_layout_for_Orundum_3_times_a_day.json" to "333 一天 3 换",
-        "facility_preset_3_shifts_daily.json" to "设施预设 一天 3 换",
+        USER_DEFINED_INFRAST,
+        "153_layout_3_times_a_day.json",
+        "153_layout_4_times_a_day.json",
+        "243_layout_3_times_a_day.json",
+        "243_layout_4_times_a_day.json",
+        "333_layout_for_Orundum_3_times_a_day.json",
+        "facility_preset_3_shifts_daily.json",
     )
 
 
-    // 代理倍率选项 (WPF SeriesList: AUTO, 10..1, 不切换)
+    // 代理倍率选项 (SeriesList)
     val seriesOptions = listOf(
         0 to "AUTO",
         10 to "10",
@@ -52,6 +48,15 @@ object UiUsageConstants {
         "30061", "30062", "30063", "30064"
     )
 
+    /** 菲亚梅塔恢复目标可选干员，展示文案见 strings `panel_infrast_fiammetta_target_*` */
+    val fiammettaTargetValues = listOf("清流", "可露希尔", "但书", "巫恋", "龙舌兰", "歌蕾蒂娅")
+
+    /** 与 core DefaultFiammettaTargets 一致 */
+    val defaultFiammettaTargets = listOf("清流", "可露希尔", "但书")
+
+    /** 与 core MaxConfiguredTargets 一致 */
+    const val MAX_FIAMMETTA_TARGETS = 3
+
     // see UsesOfDronesList
     val droneUsageValues = listOf(
         "_NotUse",
@@ -68,7 +73,9 @@ object UiUsageConstants {
      * 迁移自 RoguelikeConfig.companion / WPF RoguelikeSettingsUserControlModel
      */
     object Roguelike {
-        val THEMES = listOf("Phantom", "Mizuki", "Sami", "Sarkaz", "JieGarden")
+        val THEMES = listOf("Phantom", "Mizuki", "Sami", "Sarkaz", "JieGarden", "BlackFlow")
+
+        const val THEME_BLACK_FLOW = "BlackFlow"
 
         const val DEFAULT_SQUAD = "指挥分队"
         const val DEFAULT_ROLE = "稳扎稳打"
@@ -88,7 +95,7 @@ object UiUsageConstants {
                 DEFAULT_ROLE,
                 ROLE_OVERCOMING_WEAKNESSES,
             )
-            if (theme == "JieGarden") {
+            if (theme == "JieGarden" || theme == THEME_BLACK_FLOW) {
                 list.add(ROLE_FLEXIBLE_DEPLOYMENT)
                 list.add(ROLE_UNBREAKABLE)
             }
@@ -103,6 +110,7 @@ object UiUsageConstants {
             "Sami" -> 15
             "Sarkaz" -> 18
             "JieGarden" -> 18
+            THEME_BLACK_FLOW -> 15
             else -> 20
         }
 
@@ -151,6 +159,8 @@ object UiUsageConstants {
         fun getModeKeysForTheme(theme: String): List<String> = when (theme) {
             "Sami" -> BASE_MODES + "CLP_PDS"
             "JieGarden" -> BASE_MODES + "FindPlaytime"
+            // 黑流树海只支持这三种，不走 BASE_MODES
+            THEME_BLACK_FLOW -> listOf("Exp", "Investment", "BlackFlowBabyAnimal")
             else -> BASE_MODES
         }
 
@@ -187,9 +197,14 @@ object UiUsageConstants {
         private val COMMON_SQUADS = listOf(
             "指挥分队", "后勤分队",
             "突击战术分队", "堡垒战术分队",
-            "远程战术分队", "破坏战术分队",
-            "高规格分队"
+            "远程战术分队", "破坏战术分队"
         )
+
+        // 高规格分队只有这些主题有，追加在通用分队之后
+        // 用白名单而非「排除黑流树海」，新主题默认不给，与上游一致
+        private const val SQUAD_FIRST_CLASS = "高规格分队"
+        private val FIRST_CLASS_SQUAD_THEMES =
+            setOf("Phantom", "Mizuki", "Sami", "Sarkaz", "JieGarden")
 
         // 各主题专属分队
         // WPF: _squadDictionary (lines 168-230)
@@ -236,6 +251,17 @@ object UiUsageConstants {
                 "代理人分队",
                 "知学分队",
                 "商贾分队"
+            ),
+            THEME_BLACK_FLOW to listOf(
+                "特勤分队",
+                "矛头分队",
+                "高台突破分队",
+                "地面突破分队",
+                "本源研修分队",
+                "文明开化分队",
+                "开拓者分队",
+                "多边贸易分队",
+                "地质调查分队"
             )
         )
 
@@ -251,11 +277,20 @@ object UiUsageConstants {
             theme: String,
             mode: RoguelikeMode = RoguelikeMode.Exp
         ): List<String> {
+            val commonSquads = if (theme in FIRST_CLASS_SQUAD_THEMES) {
+                COMMON_SQUADS + SQUAD_FIRST_CLASS
+            } else {
+                COMMON_SQUADS
+            }
             if (theme == "Sarkaz" && mode == RoguelikeMode.Investment) {
-                return SARKAZ_INVESTMENT_SQUADS + COMMON_SQUADS
+                return SARKAZ_INVESTMENT_SQUADS + commonSquads
             }
             val themeSquads = THEME_SQUADS[theme] ?: emptyList()
-            return themeSquads + COMMON_SQUADS
+            return themeSquads + commonSquads
         }
+
+        /** 刷襁褓动物模式的可选目标品种 */
+        val BLACK_FLOW_CULTIVATION_TARGETS: List<RoguelikeBlackFlowCultivationTarget> =
+            RoguelikeBlackFlowCultivationTarget.entries
     }
 }

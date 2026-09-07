@@ -2,7 +2,6 @@ package com.aliothmoon.maameow.presentation.view.panel
 
 import android.content.ClipData
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -37,25 +36,25 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboard
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.toClipEntry
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.ui.res.stringResource
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.toolbox.OperBoxExportFormatter
 import com.aliothmoon.maameow.data.model.toolbox.OperBoxExportLabels
 import com.aliothmoon.maameow.data.model.toolbox.OperBoxOperator
 import com.aliothmoon.maameow.domain.service.ToolboxExportFileType
 import com.aliothmoon.maameow.presentation.viewmodel.ToolboxViewModel
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.utils.i18n.asString
+import com.aliothmoon.maameow.utils.i18n.formatToolboxSyncTime
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -64,7 +63,7 @@ fun OperBoxPanel(
     modifier: Modifier = Modifier,
     viewModel: ToolboxViewModel = koinInject()
 ) {
-    val result by viewModel.collector.operBoxResult.collectAsStateWithLifecycle()
+    val snapshot by viewModel.operBoxRepository.snapshot.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val resolvedStatusMessage = statusMessage.asString()
     val clipboard = LocalClipboard.current
@@ -78,13 +77,12 @@ fun OperBoxPanel(
     var selectedTab by remember { mutableIntStateOf(0) }
     var exportExpanded by remember { mutableStateOf(false) }
 
-    val data = result
-    if (data == null) {
+    if (!snapshot.hasSynced) {
         OperBoxEmptyState(modifier, resolvedStatusMessage)
         return
     }
 
-    val operators = if (selectedTab == 0) data.owned else data.notOwned
+    val operators = if (selectedTab == 0) snapshot.owned else snapshot.notOwned
 
     LazyColumn(
         modifier = modifier
@@ -96,70 +94,128 @@ fun OperBoxPanel(
         // 顶部：Tab 切换 + 导出（复制 / 导出文件可展开选格式）
         item {
             Column(modifier = Modifier.fillMaxWidth()) {
+                if (resolvedStatusMessage.isNotEmpty()) {
+                    Text(
+                        text = resolvedStatusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(bottom = 4.dp),
+                    )
+                }
+                // 左：Tab + 同步时间（左对齐同一列）；右：导出按钮顶对齐
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.Top,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        val tabs = listOf(
-                            stringResource(R.string.panel_operbox_tab_owned, data.owned.size),
-                            stringResource(R.string.panel_operbox_tab_not_owned, data.notOwned.size)
-                        )
-                        tabs.forEachIndexed { index, label ->
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                            val tabs = listOf(
+                                stringResource(
+                                    R.string.panel_operbox_tab_owned,
+                                    snapshot.owned.size
+                                ),
+                                stringResource(
+                                    R.string.panel_operbox_tab_not_owned,
+                                    snapshot.notOwned.size
+                                )
+                            )
+                            tabs.forEachIndexed { index, label ->
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (selectedTab == index)
+                                        MaterialTheme.colorScheme.primary
+                                    else
+                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
+                                    modifier = Modifier
+                                        .clickable(
+                                            interactionSource = remember { MutableInteractionSource() },
+                                            indication = null
+                                        ) { selectedTab = index }
+                                        .padding(vertical = 4.dp)
+                                )
+                            }
+                        }
+                        if (snapshot.syncTimeMillis > 0L) {
                             Text(
-                                text = label,
+                                text = stringResource(
+                                    R.string.panel_toolbox_last_sync,
+                                    formatToolboxSyncTime(snapshot.syncTimeMillis),
+                                ),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = if (selectedTab == index)
-                                    MaterialTheme.colorScheme.primary
-                                else
-                                    MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = if (selectedTab == index) FontWeight.Bold else FontWeight.Normal,
-                                modifier = Modifier
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null
-                                    ) { selectedTab = index }
-                                    .padding(vertical = 4.dp)
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        TextButton(onClick = {
-                            scope.launch {
-                                val text = viewModel.exportOperBox()
-                                val entry = ClipData.newPlainText("label", text).toClipEntry()
-                                clipboard.setClipEntry(entry)
-                            }
-                            Toast.makeText(context, copyToastMessage, Toast.LENGTH_SHORT).show()
-                        }) {
-                            Text(stringResource(R.string.panel_export_copy), style = MaterialTheme.typography.bodySmall)
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    val text = viewModel.exportOperBox()
+                                    val entry = ClipData.newPlainText("label", text).toClipEntry()
+                                    clipboard.setClipEntry(entry)
+                                }
+                                Toast.makeText(context, copyToastMessage, Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.panel_export_copy),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                         if (fileExporter != null) {
-                            TextButton(onClick = { exportExpanded = !exportExpanded }) {
-                                Text(stringResource(R.string.panel_export_file), style = MaterialTheme.typography.bodySmall)
+                            TextButton(
+                                onClick = { exportExpanded = !exportExpanded },
+                                modifier = Modifier.height(32.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.panel_export_file),
+                                    style = MaterialTheme.typography.bodySmall,
+                                )
                                 Icon(
-                                    imageVector = if (exportExpanded) Icons.Default.ArrowDropUp else Icons.Default.ArrowDropDown,
+                                    imageVector = if (exportExpanded) {
+                                        Icons.Default.ArrowDropUp
+                                    } else {
+                                        Icons.Default.ArrowDropDown
+                                    },
                                     contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(18.dp),
                                 )
                             }
                         }
                     }
                 }
                 if (fileExporter != null) {
-                    AnimatedVisibility(visible = exportExpanded) {
+                    MaaAnimatedVisibility(visible = exportExpanded) {
                         val exportFormats = listOf(
-                            Triple("JSON", ToolboxExportFileType.JSON, { viewModel.exportOperBox() }),
-                            Triple("Markdown", ToolboxExportFileType.MARKDOWN, {
-                                OperBoxExportFormatter.toMarkdown(viewModel.exportOperBoxList(), exportLabels)
-                            }),
-                            Triple("CSV", ToolboxExportFileType.CSV, {
-                                OperBoxExportFormatter.toCsv(viewModel.exportOperBoxList(), exportLabels)
-                            }),
+                            Triple("JSON", ToolboxExportFileType.JSON, viewModel::exportOperBox),
+                            Triple("Markdown", ToolboxExportFileType.MARKDOWN) {
+                                OperBoxExportFormatter.toMarkdown(
+                                    viewModel.exportOperBoxList(),
+                                    exportLabels
+                                )
+                            },
+                            Triple("CSV", ToolboxExportFileType.CSV) {
+                                OperBoxExportFormatter.toCsv(
+                                    viewModel.exportOperBoxList(),
+                                    exportLabels
+                                )
+                            },
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),

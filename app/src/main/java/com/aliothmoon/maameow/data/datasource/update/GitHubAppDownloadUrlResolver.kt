@@ -1,11 +1,14 @@
 package com.aliothmoon.maameow.data.datasource.update
 
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.constant.MaaApi
 import com.aliothmoon.maameow.data.api.HttpClientHelper
 import com.aliothmoon.maameow.data.api.model.GitHubRelease
 import com.aliothmoon.maameow.data.model.update.UpdateChannel
 import com.aliothmoon.maameow.domain.service.update.resolver.AppDownloadUrlResolver
 import com.aliothmoon.maameow.utils.JsonUtils
+import com.aliothmoon.maameow.utils.i18n.LocalizedException
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 import timber.log.Timber
 
 class GitHubAppDownloadUrlResolver(
@@ -20,13 +23,15 @@ class GitHubAppDownloadUrlResolver(
             val response = httpClient.get(MaaApi.appGitHubReleaseByTag(tag))
 
             if (!response.isSuccessful) {
-                throw Exception("GitHub API 请求失败 (HTTP ${response.code})")
+                throw LocalizedException(
+                    uiTextOf(R.string.update_error_github_api_failed, response.code)
+                )
             }
 
             val release = json.decodeFromString<GitHubRelease>(response.body.string())
 
             val apkAsset = release.assets.firstOrNull { it.name.endsWith("universal.apk") }
-                ?: throw Exception("Release 中未找到 APK 文件")
+                ?: throw LocalizedException(uiTextOf(R.string.update_error_github_no_apk))
 
             apkAsset.browserDownloadUrl
         }.onFailure { e ->

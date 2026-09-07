@@ -1,5 +1,6 @@
 package com.aliothmoon.maameow.data.model.update
 
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.InvalidArch
 import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.InvalidChannel
 import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.InvalidOs
@@ -9,57 +10,67 @@ import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.
 import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.KeyMismatched
 import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.ResourceNotFound
 import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError.ResourceQuotaExhausted
+import com.aliothmoon.maameow.utils.i18n.UiText
+import com.aliothmoon.maameow.utils.i18n.uiTextDynamicOr
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 
 /**
- * 更新错误类型
+ * 更新错误类型。
+ *
+ * 文案统一以 [UiText] 承载（固定文案走资源 id，服务器/系统返回的动态信息走 [uiTextDynamicOr]），
+ * 由 UI 层在展示时 resolve，避免在 data 层拼接最终展示串。
  */
 sealed class UpdateError : Message {
 
-    data class NetworkError(override val message: String? = null) : UpdateError()
+    data class NetworkError(val detail: String? = null) : UpdateError() {
+        override val text: UiText =
+            uiTextDynamicOr(detail, R.string.update_error_network)
+    }
+
     data class UnknownError(
-        override val message: String,
+        override val text: UiText,
         val code: Int = -1,
         val throwable: Throwable? = null
     ) : UpdateError()
 
     /** Mirrorchyan业务错误 */
     sealed class MirrorchyanBizError(
-        override val message: String
+        override val text: UiText
     ) : UpdateError() {
         // 403 - CDK
         data object KeyExpired :
-            MirrorchyanBizError("CDK 已过期")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_key_expired))
 
         data object KeyInvalid :
-            MirrorchyanBizError("CDK 不正确")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_key_invalid))
 
         data object ResourceQuotaExhausted :
-            MirrorchyanBizError("CDK 今日下载次数已达上限")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_quota_exhausted))
 
         data object KeyMismatched :
-            MirrorchyanBizError("CDK 类型和待下载的资源不匹配")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_key_mismatched))
 
         data object KeyBlocked :
-            MirrorchyanBizError("CDK 已被封禁")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_key_blocked))
 
         // 404
         data object ResourceNotFound :
-            MirrorchyanBizError("对应架构和系统下的资源不存在")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_resource_not_found))
 
         // 400
         data object InvalidOs :
-            MirrorchyanBizError("错误的系统参数")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_invalid_os))
 
         data object InvalidArch :
-            MirrorchyanBizError("错误的架构参数")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_invalid_arch))
 
         data object InvalidChannel :
-            MirrorchyanBizError("错误的更新通道参数")
+            MirrorchyanBizError(uiTextOf(R.string.update_error_invalid_channel))
 
     }
 
     data object CdkRequired : UpdateError() {
-        override val message: String = "请输入正确的 CDK"
+        override val text: UiText = uiTextOf(R.string.update_error_cdk_required)
     }
 
     companion object {
@@ -74,7 +85,23 @@ sealed class UpdateError : Message {
                 8002 -> InvalidOs
                 8003 -> InvalidArch
                 8004 -> InvalidChannel
-                else -> UnknownError("unknown error", bizCode, throwable)
+                500 -> UnknownError(
+                    uiTextOf(R.string.update_error_service_unavailable),
+                    bizCode,
+                    throwable
+                )
+
+                -1 -> UnknownError(
+                    uiTextOf(R.string.update_error_empty_data),
+                    bizCode,
+                    throwable
+                )
+
+                else -> UnknownError(
+                    uiTextDynamicOr(message, R.string.update_error_unknown),
+                    bizCode,
+                    throwable
+                )
             }
     }
 }

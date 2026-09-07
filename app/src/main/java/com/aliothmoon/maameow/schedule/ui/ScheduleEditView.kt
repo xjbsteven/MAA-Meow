@@ -1,21 +1,25 @@
 package com.aliothmoon.maameow.schedule.ui
 
+import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.BasicAlertDialog
@@ -34,48 +38,54 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimeInput
 import androidx.compose.material3.TimePicker
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.rememberTimePickerState
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import android.content.Intent
-import android.os.Build
-import android.provider.Settings
-import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
+import com.aliothmoon.maameow.manager.PermissionManager
+import com.aliothmoon.maameow.presentation.LocalToaster
+import com.aliothmoon.maameow.presentation.components.SectionHeader
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipContent
 import com.aliothmoon.maameow.presentation.components.tip.ExpandableTipIcon
+import com.aliothmoon.maameow.schedule.model.ScheduleHealthIssue
 import com.aliothmoon.maameow.schedule.model.ScheduleType
+import com.aliothmoon.maameow.schedule.service.ExactAlarmSettings
+import com.aliothmoon.maameow.schedule.service.OemPowerHints
+import com.aliothmoon.maameow.theme.MaaDesignTokens
 import com.aliothmoon.maameow.utils.i18n.asString
+import com.dokar.sonner.ToastType
+import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.LocalTime
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import androidx.core.net.toUri
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -86,7 +96,7 @@ fun ScheduleEditView(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val errorMessage = state.errorMessage.asString()
-    val snackbarHostState = remember { SnackbarHostState() }
+    val toaster = LocalToaster.current
     var showTimePicker by remember { mutableStateOf(false) }
     var editingTime by remember { mutableStateOf<LocalTime?>(null) }
     val context = LocalContext.current
@@ -95,21 +105,43 @@ fun ScheduleEditView(
         viewModel.loadStrategy(context, strategyId)
     }
 
-    var showPermissionDialog by remember { mutableStateOf(false) }
+    val permissionManager: PermissionManager = koinInject()
+    val wizardScope = rememberCoroutineScope()
 
-    LaunchedEffect(state.saveSuccess) {
-        if (state.saveSuccess) {
-            if (state.needBatteryOptimization || state.needExactAlarm) {
-                showPermissionDialog = true
-            } else {
-                navController.popBackStack()
+    // 可见性由三个条件推导，不另存一份可变标志
+    var wizardDismissed by remember { mutableStateOf(false) }
+    val showWizard = state.saveSuccess && !wizardDismissed && state.wizardPending.isNotEmpty()
+
+    // 全部处理完自动返回，含保存时本就全通过的情况
+    LaunchedEffect(state.saveSuccess, state.wizardPending.isEmpty()) {
+        if (state.saveSuccess && state.wizardPending.isEmpty()) {
+            navController.popBackStack()
+        }
+    }
+
+    // 从系统设置返回时重检，推进到下一项
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        if (showWizard) viewModel.refreshPermissionChecks()
+    }
+
+    // 与健康卡走同一条路，别再手写一套裸 Intent
+    fun openWizardTarget(item: ScheduleHealthIssue) {
+        wizardScope.launch {
+            when (item) {
+                ScheduleHealthIssue.BATTERY -> permissionManager.requestBatteryWhitelist(context)
+                ScheduleHealthIssue.EXACT_ALARM -> ExactAlarmSettings.open(context)
+                ScheduleHealthIssue.NOTIFICATION -> permissionManager.requestNotification(context)
+                ScheduleHealthIssue.OVERLAY -> permissionManager.requestOverlay(context)
+                // 进不了向导，由健康卡负责
+                ScheduleHealthIssue.BACKEND -> Unit
             }
+            viewModel.refreshPermissionChecks()
         }
     }
 
     LaunchedEffect(errorMessage) {
         if (errorMessage.isNotBlank()) {
-            snackbarHostState.showSnackbar(errorMessage)
+            toaster.show(errorMessage, type = ToastType.Error)
             viewModel.onDismissError()
         }
     }
@@ -140,12 +172,15 @@ fun ScheduleEditView(
                 }
             )
         },
-        snackbarHost = { SnackbarHost(snackbarHostState) }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(padding)
+                .padding(padding),
+            contentPadding = PaddingValues(
+                horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                vertical = MaaDesignTokens.Spacing.sm
+            )
         ) {
             item {
                 SectionHeader(stringResource(R.string.schedule_section_basic_info))
@@ -156,7 +191,7 @@ fun ScheduleEditView(
                         text = "ID: ${state.strategyId}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                        modifier = Modifier.padding(vertical = 4.dp)
                     )
                 }
             }
@@ -169,18 +204,17 @@ fun ScheduleEditView(
                     singleLine = true,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
                 )
             }
 
             item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                 SectionHeader(stringResource(R.string.schedule_section_type))
             }
             item {
                 SingleChoiceSegmentedButtonRow(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp)
                 ) {
                     ScheduleType.entries.forEachIndexed { index, type ->
                         SegmentedButton(
@@ -206,13 +240,13 @@ fun ScheduleEditView(
             when (state.scheduleType) {
                 ScheduleType.FIXED_TIME -> {
                     item {
+                        Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                         SectionHeader(stringResource(R.string.schedule_section_days))
                     }
                     item {
                         FlowRow(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
+                                .fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             val chipColors = FilterChipDefaults.filterChipColors(
@@ -238,14 +272,14 @@ fun ScheduleEditView(
                     }
 
                     item {
+                        Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                         SectionHeader(stringResource(R.string.schedule_section_times))
                     }
                     item {
                         val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
                         FlowRow(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
+                                .fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             state.executionTimes.forEach { time ->
@@ -290,6 +324,7 @@ fun ScheduleEditView(
 
                 ScheduleType.INTERVAL -> {
                     item {
+                        Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                         SectionHeader(stringResource(R.string.schedule_section_start_time))
                     }
                     item {
@@ -309,8 +344,7 @@ fun ScheduleEditView(
                             readOnly = true,
                             label = { Text(stringResource(R.string.schedule_first_execution_time)) },
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
+                                .fillMaxWidth(),
                             interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }.also { source ->
                                 LaunchedEffect(source) {
                                     source.interactions.collect { interaction ->
@@ -373,13 +407,12 @@ fun ScheduleEditView(
                     }
 
                     item {
+                        Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                         SectionHeader(stringResource(R.string.schedule_section_interval))
                     }
                     item {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp),
+                            modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -425,6 +458,7 @@ fun ScheduleEditView(
             }
 
             item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                 SectionHeader(stringResource(R.string.schedule_section_task_config))
             }
             item {
@@ -433,13 +467,11 @@ fun ScheduleEditView(
                         text = stringResource(R.string.schedule_no_profiles),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp)
                     )
                 } else {
                     FlowRow(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
+                            .fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         state.profiles.forEach { profile ->
@@ -464,19 +496,19 @@ fun ScheduleEditView(
                             text = stringResource(R.string.schedule_enabled_tasks, enabledTasks),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                            modifier = Modifier.padding(top = MaaDesignTokens.Spacing.sm)
                         )
                     }
                 }
             }
 
             item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
                 SectionHeader(stringResource(R.string.schedule_section_advanced))
                 val (expanded, setExpanded) = remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp),
+                        .fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -501,7 +533,146 @@ fun ScheduleEditView(
                 ExpandableTipContent(
                     visible = expanded,
                     tipText = stringResource(R.string.schedule_force_start_tip),
-                    modifier = Modifier.padding(horizontal = 16.dp)
+                )
+            }
+
+            item {
+                val (saverExpanded, setSaverExpanded) = remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            stringResource(R.string.schedule_auto_screen_saver),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        ExpandableTipIcon(
+                            modifier = Modifier.padding(start = 8.dp),
+                            expanded = saverExpanded,
+                            onExpandedChange = { setSaverExpanded(it) })
+                    }
+                    Switch(
+                        checked = state.autoScreenSaver,
+                        onCheckedChange = { viewModel.onAutoScreenSaverChanged(it) }
+                    )
+                }
+                ExpandableTipContent(
+                    visible = saverExpanded,
+                    tipText = stringResource(R.string.schedule_auto_screen_saver_tip),
+                )
+            }
+
+            item {
+                val (sleepExpanded, setSleepExpanded) = remember { mutableStateOf(false) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            stringResource(R.string.schedule_auto_sleep_after_task),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        ExpandableTipIcon(
+                            modifier = Modifier.padding(start = 8.dp),
+                            expanded = sleepExpanded,
+                            onExpandedChange = { setSleepExpanded(it) })
+                    }
+                    Switch(
+                        checked = state.autoSleepAfterTask,
+                        onCheckedChange = { viewModel.onAutoSleepAfterTaskChanged(it) }
+                    )
+                }
+                ExpandableTipContent(
+                    visible = sleepExpanded,
+                    tipText = stringResource(R.string.schedule_auto_sleep_tip),
+                )
+                // 从属于上面的开关，关掉就没有意义，直接隐藏
+                if (state.autoSleepAfterTask) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 24.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.schedule_skip_auto_sleep_if_awake),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                stringResource(R.string.schedule_skip_auto_sleep_if_awake_tip),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(
+                            checked = state.skipAutoSleepIfAwake,
+                            onCheckedChange = { viewModel.onSkipAutoSleepIfAwakeChanged(it) }
+                        )
+                    }
+                }
+            }
+
+            item {
+                // 优先级规则容易踩坑，默认展开
+                val (closeExpanded, setCloseExpanded) = remember { mutableStateOf(true) }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            stringResource(R.string.schedule_close_game_after_task),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        ExpandableTipIcon(
+                            modifier = Modifier.padding(start = 8.dp),
+                            expanded = closeExpanded,
+                            onExpandedChange = { setCloseExpanded(it) })
+                    }
+                    Switch(
+                        checked = state.closeGameAfterTask,
+                        onCheckedChange = { viewModel.onCloseGameAfterTaskChanged(it) }
+                    )
+                }
+                val closeEffect by viewModel.closeGameEffect.collectAsStateWithLifecycle()
+                val willClose = closeEffect == CloseGameEffect.GlobalOverride
+                        || closeEffect == CloseGameEffect.StrategyActive
+                Text(
+                    text = stringResource(
+                        when (closeEffect) {
+                            CloseGameEffect.ForegroundInactive -> R.string.schedule_close_game_effect_foreground
+                            CloseGameEffect.GlobalOverride -> R.string.schedule_close_game_effect_global
+                            CloseGameEffect.StrategyActive -> R.string.schedule_close_game_effect_strategy
+                            CloseGameEffect.Inactive -> R.string.schedule_close_game_effect_inactive
+                        }
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (willClose) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(bottom = MaaDesignTokens.Spacing.sm)
+                )
+                ExpandableTipContent(
+                    visible = closeExpanded,
+                    tipText = stringResource(R.string.schedule_close_game_tip),
                 )
             }
         }
@@ -523,64 +694,54 @@ fun ScheduleEditView(
         )
     }
 
-    if (showPermissionDialog) {
-        val context = LocalContext.current
-        val tips = buildList {
-            if (state.needBatteryOptimization) add(stringResource(R.string.schedule_permission_tip_battery_optimization))
-            if (state.needExactAlarm) add(stringResource(R.string.schedule_permission_tip_exact_alarm))
-        }
-        AlertDialog(
-            onDismissRequest = {
-                showPermissionDialog = false
+    if (showWizard) {
+        val current = state.wizardPending.first()
+        PermissionWizardDialog(
+            current = current,
+            oemHint = scheduleOemPowerHintText(OemPowerHints.hintFor(Build.MANUFACTURER))
+                .takeIf { current == ScheduleHealthIssue.BATTERY },
+            onGo = { openWizardTarget(current) },
+            onLater = {
+                wizardDismissed = true
                 navController.popBackStack()
             },
-            title = { Text(stringResource(R.string.schedule_permission_title)) },
-            text = {
-                Text(
-                    stringResource(
-                        R.string.schedule_permission_message,
-                        tips.joinToString(stringResource(R.string.common_enumeration_separator))
-                    )
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (state.needBatteryOptimization) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                                    "package:${context.packageName}".toUri()
-                                )
-                            )
-                        }
-                    } else if (state.needExactAlarm && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                            )
-                        }
-                    }
-                    showPermissionDialog = false
-                    navController.popBackStack()
-                }) { Text(stringResource(R.string.schedule_go_to_settings)) }
-            },
-            dismissButton = {
-                TextButton(onClick = {
-                    showPermissionDialog = false
-                    navController.popBackStack()
-                }) { Text(stringResource(R.string.schedule_later)) }
-            }
         )
     }
 }
 
+/** 每次只展示当前待处理项，全部通过后自动关闭 */
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleSmall,
-        modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 8.dp)
+private fun PermissionWizardDialog(
+    current: ScheduleHealthIssue,
+    oemHint: String?,
+    onGo: () -> Unit,
+    onLater: () -> Unit,
+) {
+    val (tip, desc) = schedulePermissionActionText(current)
+    AlertDialog(
+        onDismissRequest = onLater,
+        title = { Text(stringResource(R.string.schedule_permission_title)) },
+        text = {
+            Column {
+                Text(tip, style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(4.dp))
+                Text(desc, style = MaterialTheme.typography.bodySmall)
+                if (oemHint != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        oemHint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.tertiary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onGo) { Text(stringResource(R.string.schedule_go_to_settings)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onLater) { Text(stringResource(R.string.common_later)) }
+        },
     )
 }
 

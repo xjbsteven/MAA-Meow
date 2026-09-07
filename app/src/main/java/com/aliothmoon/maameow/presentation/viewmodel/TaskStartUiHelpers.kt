@@ -3,7 +3,9 @@ package com.aliothmoon.maameow.presentation.viewmodel
 import android.content.Context
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
+import com.aliothmoon.maameow.domain.service.resolveStartResultMessage
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
+import com.aliothmoon.maameow.domain.usecase.TaskStartAcknowledgement
 import com.aliothmoon.maameow.domain.usecase.TaskStartDecision
 import com.aliothmoon.maameow.domain.usecase.TaskStartDecisionReason
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogConfirmAction
@@ -12,126 +14,65 @@ import com.aliothmoon.maameow.presentation.view.panel.PanelDialogUiState
 import com.aliothmoon.maameow.utils.i18n.UiText
 import com.aliothmoon.maameow.utils.i18n.uiTextDynamic
 import com.aliothmoon.maameow.utils.i18n.uiTextJoin
+import com.aliothmoon.maameow.utils.i18n.uiTextLines
 import com.aliothmoon.maameow.utils.i18n.uiTextOf
 
-internal fun Context.resolveGameNotRunningWarningMessage(): UiText =
-    uiTextOf(R.string.task_start_warning_game_not_running)
+// 需用户确认的警告文案（手动模式），按确认项区分。各启动入口共享。
+internal fun Context.resolveTaskStartConfirmationMessage(ack: TaskStartAcknowledgement): UiText =
+    when (ack) {
+        TaskStartAcknowledgement.GAME_NOT_RUNNING_WITHOUT_WAKE_UP ->
+            uiTextOf(R.string.task_start_warning_game_not_running)
 
-internal fun Context.resolveTaskStartDecisionMessage(decision: TaskStartDecision): UiText {
-    val conflictingTypes = when (decision) {
-        is TaskStartDecision.Blocked -> uiTextJoin(
-            *decision.clientTypes.map(::uiTextDynamic).toTypedArray(),
-            separator = uiTextOf(R.string.common_enumeration_separator)
+        TaskStartAcknowledgement.GAME_NOT_INSTALLED ->
+            uiTextOf(R.string.task_start_warning_game_not_installed)
+    }
+
+// 拦截文案，按原因区分。各启动入口共享。
+internal fun Context.resolveTaskStartBlockedMessage(
+    reason: TaskStartDecisionReason,
+    clientTypes: List<String> = emptyList(),
+): UiText = when (reason) {
+    TaskStartDecisionReason.NO_TASK_SELECTED ->
+        uiTextOf(R.string.task_start_error_no_task_selected)
+
+    TaskStartDecisionReason.CONFLICTING_CLIENT_TYPES ->
+        uiTextOf(
+            R.string.task_start_error_conflicting_client_types,
+            uiTextJoin(
+                *clientTypes.map(::uiTextDynamic).toTypedArray(),
+                separator = uiTextOf(R.string.common_enumeration_separator),
+            ),
         )
 
-        is TaskStartDecision.RequiresConfirmation -> uiTextJoin(
-            *decision.clientTypes.map(::uiTextDynamic).toTypedArray(),
-            separator = uiTextOf(R.string.common_enumeration_separator)
-        )
+    TaskStartDecisionReason.NO_EXECUTABLE_TASKS ->
+        uiTextOf(R.string.task_start_error_no_executable_tasks)
 
-        is TaskStartDecision.Ready -> UiText.Empty
-    }
-    return when (decision) {
-        is TaskStartDecision.Ready -> UiText.Empty
+    TaskStartDecisionReason.GAME_NOT_RUNNING_WITHOUT_WAKE_UP ->
+        uiTextOf(R.string.task_start_error_scheduled_no_wakeup)
 
-        is TaskStartDecision.RequiresConfirmation -> when (decision.reason) {
-            TaskStartDecisionReason.NO_TASK_SELECTED -> {
-                uiTextOf(R.string.task_start_error_no_task_selected)
-            }
+    TaskStartDecisionReason.GAME_NOT_INSTALLED ->
+        uiTextOf(R.string.task_start_error_scheduled_game_not_installed)
 
-            TaskStartDecisionReason.CONFLICTING_CLIENT_TYPES -> {
-                uiTextOf(R.string.task_start_error_conflicting_client_types, conflictingTypes)
-            }
-
-            TaskStartDecisionReason.NO_EXECUTABLE_TASKS -> {
-                uiTextOf(R.string.task_start_error_no_executable_tasks)
-            }
-
-            TaskStartDecisionReason.GAME_NOT_RUNNING_WITHOUT_WAKE_UP -> {
-                uiTextOf(R.string.task_start_warning_game_not_running)
-            }
-
-            TaskStartDecisionReason.GAME_NOT_INSTALLED -> {
-                uiTextOf(R.string.task_start_warning_game_not_installed)
-            }
-
-            TaskStartDecisionReason.GAME_NOT_ON_BACKGROUND_DISPLAY -> {
-                uiTextOf(R.string.task_start_error_game_not_on_background_display)
-            }
-        }
-
-        is TaskStartDecision.Blocked -> when (decision.reason) {
-            TaskStartDecisionReason.NO_TASK_SELECTED -> {
-                uiTextOf(R.string.task_start_error_no_task_selected)
-            }
-
-            TaskStartDecisionReason.CONFLICTING_CLIENT_TYPES -> {
-                uiTextOf(R.string.task_start_error_conflicting_client_types, conflictingTypes)
-            }
-
-            TaskStartDecisionReason.NO_EXECUTABLE_TASKS -> {
-                uiTextOf(R.string.task_start_error_no_executable_tasks)
-            }
-
-            TaskStartDecisionReason.GAME_NOT_RUNNING_WITHOUT_WAKE_UP -> {
-                uiTextOf(R.string.task_start_error_scheduled_no_wakeup)
-            }
-
-            TaskStartDecisionReason.GAME_NOT_INSTALLED -> {
-                uiTextOf(R.string.task_start_error_scheduled_game_not_installed)
-            }
-
-            TaskStartDecisionReason.GAME_NOT_ON_BACKGROUND_DISPLAY -> {
-                uiTextOf(R.string.task_start_error_game_not_on_background_display)
-            }
-        }
-    }
+    TaskStartDecisionReason.GAME_NOT_ON_BACKGROUND_DISPLAY ->
+        uiTextOf(R.string.task_start_error_game_not_on_background_display)
 }
 
-internal fun Context.resolveTaskStartFailureMessage(result: MaaCompositionService.StartResult): UiText? {
-    return when (result) {
-        is MaaCompositionService.StartResult.Success -> null
-        is MaaCompositionService.StartResult.ResourceError -> {
-            uiTextOf(R.string.task_start_error_resource_load_failed)
-        }
+internal fun Context.resolveTaskStartDecisionMessage(decision: TaskStartDecision): UiText =
+    when (decision) {
+        is TaskStartDecision.Ready -> UiText.Empty
+        is TaskStartDecision.RequiresConfirmation ->
+            resolveTaskStartConfirmationMessage(decision.acknowledgement)
 
-        is MaaCompositionService.StartResult.InitializationError -> when (result.phase) {
-            MaaCompositionService.StartResult.InitializationError.InitPhase.CREATE_INSTANCE -> {
-                uiTextOf(R.string.task_start_error_maa_create_instance)
-            }
-
-            MaaCompositionService.StartResult.InitializationError.InitPhase.SET_TOUCH_MODE -> {
-                uiTextOf(R.string.task_start_error_set_touch_mode)
-            }
-        }
-
-        is MaaCompositionService.StartResult.PortraitOrientationError -> {
-            uiTextOf(R.string.task_start_error_portrait_orientation)
-        }
-
-        is MaaCompositionService.StartResult.ConnectionError -> when (result.phase) {
-            MaaCompositionService.StartResult.ConnectionError.ConnectPhase.DISPLAY_MODE -> {
-                uiTextOf(R.string.task_start_error_display_mode)
-            }
-
-            MaaCompositionService.StartResult.ConnectionError.ConnectPhase.VIRTUAL_DISPLAY -> {
-                uiTextOf(R.string.task_start_error_virtual_display)
-            }
-
-            MaaCompositionService.StartResult.ConnectionError.ConnectPhase.MAA_CONNECT -> {
-                uiTextOf(R.string.task_start_error_connect_timeout)
-            }
-        }
-
-        is MaaCompositionService.StartResult.StartError -> {
-            uiTextOf(R.string.task_start_error_start_failed)
-        }
-
-        is MaaCompositionService.StartResult.ServiceConnecting -> {
-            uiTextOf(R.string.task_start_error_service_connecting)
-        }
+        is TaskStartDecision.Blocked ->
+            uiTextLines(
+                resolveTaskStartBlockedMessage(decision.reason, decision.clientTypes),
+                *decision.details.toTypedArray(),
+            )
     }
-}
+
+internal fun Context.resolveTaskStartFailureMessage(
+    result: MaaCompositionService.StartResult,
+): UiText? = resolveStartResultMessage(result)
 
 internal fun Context.formatStartResult(
     result: MaaCompositionService.StartResult,

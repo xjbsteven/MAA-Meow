@@ -4,9 +4,9 @@ package com.aliothmoon.maameow.data.model
 import com.aliothmoon.maameow.domain.enums.InfrastMode
 import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.domain.enums.InfrastRoomType
+import com.aliothmoon.maameow.domain.enums.UiUsageConstants
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
-import com.aliothmoon.maameow.data.model.TaskParamProvider
 import com.aliothmoon.maameow.utils.JsonUtils
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.Transient
@@ -14,10 +14,10 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import timber.log.Timber
 import java.io.File
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import timber.log.Timber
 
 /**
  * 基建换班配置
@@ -43,12 +43,7 @@ data class InfrastConfig(
      */
     val mode: InfrastMode = InfrastMode.Normal,
 
-    /**
-     * 队列轮换子模式（仅 Rotation 模式有效）
-     * 对应 Mac: rotation_style
-     * - Game: 游戏内一键轮换
-     * - StationPreset: 进驻总览设施点预设
-     */
+    /** 队列轮换的具体执行方式。 */
     val rotationStyle: InfrastRotationStyle = InfrastRotationStyle.Game,
 
     // ============ 自定义基建配置（Custom 模式） ============
@@ -82,26 +77,15 @@ data class InfrastConfig(
      */
     val customInfrastPlanSelect: Int = -1,
 
-    /**
-     * 任务完成后是否自动切换到下一班次
-     * 对应 Mac: auto_advance_plan_index / WPF: AutoAdvancePlanIndex
-     *
-     * 仅在 Custom 模式且 customInfrastPlanSelect >= 0 时生效；不传给 Core。
-     */
+    /** 自定义排班执行成功后自动切换固定班次（仅 UI 状态使用）。 */
     val autoAdvancePlanIndex: Boolean = true,
 
     // ============ 进驻总览设施点预设（Rotation · station_preset） ============
 
-    /** 基建布局：制造/贸易/发电站数量 */
     val presetLayout: StationPresetLayout = StationPresetLayout(),
-
-    /** 本次要切换的设施 ID 列表（如 Control、Mfg1） */
-    val presetSelectedRooms: List<String> = StationPresetRoomList.defaultSelection(StationPresetLayout()),
-
-    /** 切换后干员休整 */
+    val presetSelectedRooms: List<String> =
+        StationPresetRoomList.defaultSelection(StationPresetLayout()),
     val presetRest: Boolean = true,
-
-    /** 设施点预设模式下的无人机配置 */
     val stationPresetDrones: StationPresetDrones = StationPresetDrones(),
 
     // ============ 设施列表（有序） ============
@@ -161,7 +145,7 @@ data class InfrastConfig(
      * 启用后，宿舍有空位时会优先安排信赖未满的干员进入宿舍
      * 注意: Rotation模式下不显示此选项
      */
-    val dormTrustEnabled: Boolean = false,
+    val dormTrustEnabled: Boolean = true,
 
     /**
      * 宿舍是否使用未进驻筛选标签
@@ -188,10 +172,7 @@ data class InfrastConfig(
      */
     val receptionMessageBoard: Boolean = true,
 
-    /**
-     * 会客室接收线索
-     * 对应 Mac: reception_receive_clue
-     */
+    /** 是否接收会客室中的线索。 */
     val receptionReceiveClue: Boolean = true,
 
     /**
@@ -218,6 +199,34 @@ data class InfrastConfig(
      */
     val continueTraining: Boolean = false,
 
+    // ============ 常规模式效率算法（仅 Normal 模式生效） ============
+
+    /**
+     * 菲亚梅塔心情恢复开关
+     * 对应 WPF: FiammettaRecoveryEnabled (bool)
+     *
+     * 关闭时 core 不把宿舍前置轮纳入子任务序列，[fiammettaTargets] 一并失效
+     */
+    val fiammettaRecoveryEnabled: Boolean = false,
+
+    /**
+     * 菲亚梅塔恢复目标，最多 3 个，core 取其中心情最低者，顺序无关
+     * 仅 [fiammettaRecoveryEnabled] 开启时生效，可选值见 [UiUsageConstants.fiammettaTargetValues]
+     */
+    val fiammettaTargets: List<String> = UiUsageConstants.defaultFiammettaTargets,
+
+    /** 红松骑士团跨设施组合 */
+    val usePinusSylvestris: Boolean = false,
+
+    /** 感知信息跨设施组合，优先度高于人间烟火 */
+    val usePerceptionInformation: Boolean = false,
+
+    /** 人间烟火跨设施组合 */
+    val useWorldlyPlight: Boolean = false,
+
+    /** 深海猎人跨设施组合，不与红松骑士团同时参与排班 */
+    val useAbyssalHunter: Boolean = false,
+
     /**
      * 自定义基建计划的时间段数据（不参与序列化）
      *
@@ -239,29 +248,41 @@ data class InfrastConfig(
     val customPlanNames: List<String> = emptyList()
 ) : TaskParamProvider {
 
-    /**
-     * 是否使用自定义 JSON 排班（仅 Custom 模式）
-     * 对应 Mac: usesCustomJsonPlan
-     */
     fun usesCustomJsonPlan(): Boolean = mode == InfrastMode.Custom
 
-    /**
-     * 是否为队列轮换 · 进驻总览设施点预设
-     * 对应 Mac: usesRotationStationPreset
-     */
     fun usesRotationStationPreset(): Boolean =
         mode == InfrastMode.Rotation && rotationStyle == InfrastRotationStyle.StationPreset
 
-    /** @deprecated 使用 [usesCustomJsonPlan] */
+    @Deprecated("Use usesCustomJsonPlan")
     fun usesPresetPlan(): Boolean = usesCustomJsonPlan()
 
-    /**
-     * 将心情阈值转换为MAA Core需要的浮点数格式(0.0-1.0)
-     */
-    fun getDormThresholdAsFloat(): Double = dormThreshold / 100.0
-    override fun toTaskParams(): MaaTaskParams {
-        val threshold = getDormThresholdAsFloat()
+    override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
+        val threshold = dormThreshold / 100.0
         val paramsJson = buildJsonObject {
+            if (usesRotationStationPreset()) {
+                put("facility", buildJsonArray { add(JsonPrimitive("Mfg")) })
+                put("preset", buildJsonObject {
+                    put("rooms", buildJsonArray {
+                        presetSelectedRooms.forEach { add(JsonPrimitive(it)) }
+                    })
+                    put("rest", presetRest)
+                })
+                if (stationPresetDrones.enable) {
+                    put("drones", buildJsonObject {
+                        put("enable", true)
+                        put("room", stationPresetDrones.room.apiValue)
+                        put("index", stationPresetDrones.index)
+                        put("order", stationPresetDrones.order.apiValue)
+                    })
+                }
+            } else {
+                put("facility", buildJsonArray {
+                    normalizedFacilities().filter { it.second }
+                        .map { it.first.name }
+                        .forEach { add(JsonPrimitive(it)) }
+                })
+                put("drones", usesOfDrones)
+            }
             put("continue_training", continueTraining)
             put("threshold", threshold)
             put("dorm_notstationed_enabled", dormFilterNotStationedEnabled)
@@ -271,50 +292,43 @@ data class InfrastConfig(
             put("reception_receive_clue", receptionReceiveClue)
             put("reception_clue_exchange", receptionClueExchange)
             put("reception_send_clue", receptionSendClue)
+            // 始终下发，非 Normal 模式由 core 忽略
+            put("fiammetta_recovery_enabled", fiammettaRecoveryEnabled)
+            put("fiammetta_targets", buildJsonArray {
+                fiammettaTargets
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(UiUsageConstants.MAX_FIAMMETTA_TARGETS)
+                    .forEach { add(JsonPrimitive(it)) }
+            })
+            put("use_pinus_sylvestris", usePinusSylvestris)
+            put("use_perception_information", usePerceptionInformation)
+            put("use_worldly_plight", useWorldlyPlight)
+            put("use_abyssal_hunter", useAbyssalHunter)
             put("mode", mode.value)
             if (mode == InfrastMode.Rotation) {
                 put("rotation_style", rotationStyle.value)
             }
-
-            when {
-                usesRotationStationPreset() -> {
-                    put("facility", buildJsonArray { add(JsonPrimitive("Mfg")) })
-                    put("preset", buildJsonObject {
-                        put("rooms", buildJsonArray {
-                            presetSelectedRooms.forEach { add(JsonPrimitive(it)) }
-                        })
-                        put("rest", presetRest)
-                    })
-                    if (stationPresetDrones.enable) {
-                        put("drones", buildJsonObject {
-                            put("enable", true)
-                            put("room", stationPresetDrones.room.apiValue)
-                            put("index", stationPresetDrones.index)
-                            put("order", stationPresetDrones.order.apiValue)
-                        })
-                    }
-                }
-                usesCustomJsonPlan() -> {
-                    put("facility", buildJsonArray {
-                        facilities.filter { it.second }
-                            .map { it.first.name }
-                            .forEach { add(JsonPrimitive(it)) }
-                    })
-                    put("filename", customInfrastFile)
-                    put("plan_index", resolveCustomPlanIndex())
-                }
-                else -> {
-                    put("facility", buildJsonArray {
-                        facilities.filter { it.second }
-                            .map { it.first.name }
-                            .forEach { add(JsonPrimitive(it)) }
-                    })
-                    put("drones", usesOfDrones)
-                }
+            if (mode == InfrastMode.Custom) {
+                put("filename", ctx.relocatePath(customInfrastFile))
+                put("plan_index", resolveCustomPlanIndex(customInfrastFile))
             }
         }
 
-        return MaaTaskParams(MaaTaskType.INFRAST, paramsJson.toString())
+        return listOf(MaaTaskParams(MaaTaskType.INFRAST, paramsJson.toString()))
+    }
+
+    /**
+     * 去重并把缺失的设施类型补为未启用，对应 WPF RefreshInfrastRoomList 的补全分支
+     *
+     * 只能补缺项，存量 JSON 里的未知房间名会让反序列化抛异常、整份 profiles 回退默认链
+     */
+    fun normalizedFacilities(): List<Pair<InfrastRoomType, Boolean>> {
+        val known = facilities.distinctBy { it.first }
+        val missing = InfrastRoomType.values.filterNot { room ->
+            known.any { it.first == room }
+        }
+        return if (missing.isEmpty()) known else known + missing.map { it to false }
     }
 
     /**
@@ -324,13 +338,13 @@ data class InfrastConfig(
      * - customInfrastPlanSelect >= 0: 直接使用指定索引
      * - customInfrastPlanSelect == -1: 时间轮换，匹配当前时间所在的 period
      */
-    private fun resolveCustomPlanIndex(): Int {
+    private fun resolveCustomPlanIndex(file: String): Int {
         if (customInfrastPlanSelect >= 0) return customInfrastPlanSelect
 
         // customPlanPeriods 由 UI 面板解析后填充, 但它是 @Transient 不持久化。
         // 定时冷启动等未经过配置面板的场景下它为空, 此时直接读文件兜底,
         // 否则时间轮换会恒定回退到班次 0。
-        val effectivePeriods = customPlanPeriods.ifEmpty { loadPeriodsFromFile() }
+        val effectivePeriods = customPlanPeriods.ifEmpty { loadPeriodsFromFile(file) }
         if (effectivePeriods.isEmpty()) return 0
 
         val now = LocalTime.now()
@@ -339,8 +353,10 @@ data class InfrastConfig(
         for ((index, periods) in effectivePeriods.withIndex()) {
             for (period in periods) {
                 if (period.size < 2) continue
-                val start = runCatching { LocalTime.parse(period[0], formatter) }.getOrNull() ?: continue
-                val end = runCatching { LocalTime.parse(period[1], formatter) }.getOrNull() ?: continue
+                val start =
+                    runCatching { LocalTime.parse(period[0], formatter) }.getOrNull() ?: continue
+                val end =
+                    runCatching { LocalTime.parse(period[1], formatter) }.getOrNull() ?: continue
                 if (start <= end) {
                     if (now in start..end) return index
                 } else {
@@ -361,14 +377,14 @@ data class InfrastConfig(
      * 对齐上游 WPF InfrastTask.OnDeserialized: 计划时间段始终以文件为准, 用时即时解析。
      * 文件缺失或解析失败时返回空, 由调用方回退到班次 0。
      */
-    private fun loadPeriodsFromFile(): List<List<List<String>>> {
-        if (customInfrastFile.isBlank()) return emptyList()
+    private fun loadPeriodsFromFile(file: String): List<List<List<String>>> {
+        if (file.isBlank()) return emptyList()
         return runCatching {
             JsonUtils.common
-                .decodeFromString<CustomInfrastConfig>(File(customInfrastFile).readText())
+                .decodeFromString<CustomInfrastConfig>(File(file).readText())
                 .plans.map { it.period }
         }.getOrElse {
-            Timber.w(it, "读取自定义基建时间段失败: %s", customInfrastFile)
+            Timber.w(it, "读取自定义基建时间段失败: %s", file)
             emptyList()
         }
     }

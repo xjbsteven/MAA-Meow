@@ -1,6 +1,7 @@
 package com.aliothmoon.maameow.overlay.border
 
 import android.animation.ValueAnimator
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Matrix
@@ -105,7 +106,12 @@ class BorderOverlayView(context: Context, private val style: BorderStyle = Borde
 
     /**
      * 获取默认圆角半径（用于 Android 12 以下）
+     *
+     * 读取系统框架隐藏 dimen `android:rounded_corner_radius`,用于 API 31 以下匹配设备真实圆角。
+     * 该资源为 com.android.internal.R 的 @hide 资源,无公开 R 常量可引用,且内部 id 跨版本/OEM 不稳定,
+     * 只能按名 getIdentifier 解析 —— 这正是 DiscouragedApi 承认的合法例外,故在此抑制。
      */
+    @SuppressLint("DiscouragedApi")
     private fun getDefaultCornerRadius(): Float {
         // 尝试从系统属性获取
         return try {

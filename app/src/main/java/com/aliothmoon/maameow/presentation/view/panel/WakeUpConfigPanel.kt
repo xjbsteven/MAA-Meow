@@ -45,7 +45,7 @@ fun WakeUpConfigPanel(
     val state = compositionService.state.collectAsStateWithLifecycle()
     val isTaskActive =
         state.value == MaaExecutionState.STARTING || state.value == MaaExecutionState.RUNNING
-    val showAccountSwitchInput = config.clientType == "Official" || config.clientType == "Bilibili" || config.clientType == "txwy"
+    val showAccountSwitchInput = config.clientType in WakeUpConfig.ACCOUNT_SWITCH_CLIENT_TYPES
 
     Column(
         modifier = Modifier
@@ -80,7 +80,10 @@ fun WakeUpConfigPanel(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                        .background(
+                            MaterialTheme.colorScheme.surfaceVariant,
+                            RoundedCornerShape(8.dp)
+                        )
                         .padding(horizontal = 10.dp, vertical = 8.dp)
                 )
             }

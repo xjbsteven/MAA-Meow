@@ -21,9 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.res.stringResource
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.presentation.components.ITextField
 
@@ -73,7 +73,8 @@ fun InlineBlacklistAddPanel(
                 Button(
                     onClick = { onItemAdded(inputText) },
                     enabled = inputText.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                    shape = RoundedCornerShape(8.dp)
                 ) { Text(stringResource(R.string.common_add)) }
             }
         }

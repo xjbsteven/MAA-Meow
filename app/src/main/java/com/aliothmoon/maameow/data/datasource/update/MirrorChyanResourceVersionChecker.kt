@@ -25,7 +25,11 @@ class MirrorChyanResourceVersionChecker(
         return result.fold(
             onSuccess = { data ->
                 val remoteVersion = data.versionName
-                if (remoteVersion.isEmpty() || ResourceDownloader.compareVersions(currentVersion, remoteVersion) >= 0) {
+                if (remoteVersion.isEmpty() || ResourceDownloader.compareVersions(
+                        currentVersion,
+                        remoteVersion
+                    ) >= 0
+                ) {
                     UpdateCheckResult.UpToDate(currentVersion)
                 } else {
                     UpdateCheckResult.Available(
@@ -39,7 +43,7 @@ class MirrorChyanResourceVersionChecker(
             onFailure = { e ->
                 when (e) {
                     is MirrorChyanBizException -> UpdateCheckResult.Error(e.toUpdateError())
-                    else -> UpdateCheckResult.Error(UpdateError.NetworkError(e.message ?: "网络错误"))
+                    else -> UpdateCheckResult.Error(UpdateError.NetworkError(e.message))
                 }
             }
         )

@@ -2,7 +2,6 @@ package com.aliothmoon.maameow.data.model
 
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
-import com.aliothmoon.maameow.data.model.TaskParamProvider
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -74,11 +73,9 @@ data class ReclamationConfig(
         }
     }
 
-    override fun toTaskParams(): MaaTaskParams = toTaskParams(clientType = "Official")
-
-    fun toTaskParams(clientType: String): MaaTaskParams {
+    override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
         // 对齐 WPF: 全角分号→半角;空字符串→ReclamationToolToCraftPlaceholder;按 ; 切分;仅 trim,不过滤空 entry
-        val source = toolToCraft.ifEmpty { defaultToolToCraft(clientType) }
+        val source = toolToCraft.ifEmpty { defaultToolToCraft(ctx.clientType) }
         val tools = source.replace('；', ';').split(';').map { it.trim() }
 
         val paramsJson = buildJsonObject {
@@ -91,6 +88,6 @@ data class ReclamationConfig(
             }
             put("clear_store", clearStore)
         }
-        return MaaTaskParams(MaaTaskType.RECLAMATION, paramsJson.toString())
+        return listOf(MaaTaskParams(MaaTaskType.RECLAMATION, paramsJson.toString()))
     }
 }

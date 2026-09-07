@@ -16,7 +16,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,11 +25,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.time.DayOfWeek
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.temporal.ChronoUnit
-import kotlin.collections.plus
 
 /**
  * MAA 资源管理器
@@ -45,7 +42,7 @@ class ActivityManager(
 ) {
 
     private val _activityStages = MutableStateFlow<List<ActivityStage>>(emptyList())
-    private val _miniGames = MutableStateFlow<List<MiniGame>>(emptyList())
+    private val _miniGames = MutableStateFlow(doBuildDefaultMiniGames())
     private val _resourceCollection = MutableStateFlow<StageActivityInfo?>(null)
     private val _stages = MutableStateFlow<Map<String, MergedStageInfo>>(emptyMap())
 
@@ -71,21 +68,21 @@ class ActivityManager(
 
     /** 鹰历时区 */
     private val serverZone: ZoneId
-        get() = ServerTimezone.getServerZone(chainState.getClientType())
+        get() = ServerTimezone.getServerZone(chainState.clientType)
 
     /**
      * 获取当前鹰角历的星期几（根据客户端类型自动选择时区）
      * 迁移自 WPF DateTimeExtension.ToYjDateTime
      */
     fun getYjDayOfWeek(): DayOfWeek {
-        return ServerTimezone.getYjDayOfWeek(chainState.getClientType())
+        return ServerTimezone.getYjDayOfWeek(chainState.clientType)
     }
 
     /**
      * 获取当前鹰角历星期几的中文名
      */
     fun getYjDayOfWeekName(): String {
-        return ServerTimezone.getYjDayOfWeekName(chainState.getClientType())
+        return ServerTimezone.getYjDayOfWeekName(chainState.clientType)
     }
 
     suspend fun load(clientType: String) {
@@ -153,37 +150,28 @@ class ActivityManager(
 
     private fun doParseMiniGame(activity: ClientStageActivity): List<MiniGame> {
         // 解析小游戏 (see WPF ParseMiniGameEntries)
-        val parsedMiniGames = activity.miniGame?.map { MiniGame.fromEntry(it) }
+        val parsed = activity.miniGame?.map { MiniGame.fromEntry(it) }
             ?.filter { it.isOpen }  // WPF: entry.BeingOpen
             ?: emptyList()
 
-        // 合并默认小游戏 (see WPF InitializeDefaultMiniGameEntries + InsertRange)
-        val parsedValues = parsedMiniGames.map { it.value }.toSet()
-        val defaultMiniGames =
-            DefaultMiniGames.ENTRIES.filter { it.value !in parsedValues }  // 按 value 去重
-                .map { entry ->
-                    MiniGame(
-                        display = uiTextOf(entry.displayRes),
-                        value = entry.value,
-                        utcStartTime = 0L,
-                        utcExpireTime = Long.MAX_VALUE,
-                        tip = uiTextOf(entry.tipRes)
-                    )
-                }
-        val miniGames = parsedMiniGames + defaultMiniGames  // API 在前，默认在后
-        miniGames.forEachIndexed { index, game ->
-            Timber.d(
-                "MiniGame[%d]: display=%s, value=%s, tipKey=%s, tip=%s, isOpen=%s, isUnsupported=%s",
-                index,
-                game.display.resolve(context),
-                game.value,
-                game.tipKey,
-                game.tip.resolve(context).replace("\n", "\\n"),
-                game.isOpen,
-                game.isUnsupported
-            )
+        // 合并默认小游戏
+        val parsedValues = parsed.map { it.value }.toSet()
+        val defaults = doBuildDefaultMiniGames().filter { it.value !in parsedValues }  // 按 value 去重
+        val games = parsed + defaults  // API 在前，默认在后
+        return games.also {
+            it.forEachIndexed { index, game ->
+                Timber.d(
+                    "MiniGame[%d]: display=%s, value=%s, tipKey=%s, tip=%s, isOpen=%s, isUnsupported=%s",
+                    index,
+                    game.display.resolve(context),
+                    game.value,
+                    game.tipKey,
+                    game.tip.resolve(context).replace("\n", "\\n"),
+                    game.isOpen,
+                    game.isUnsupported
+                )
+            }
         }
-        return miniGames
     }
 
     private fun doParseStageInfo(activity: ClientStageActivity): List<ActivityStage> {
@@ -247,7 +235,7 @@ class ActivityManager(
             activityGroups.forEach { (activityKey, stages) ->
                 val activityInfo = stages.firstOrNull()?.activity
                 val activityTip = activityInfo?.tip ?: activityKey
-                val daysLeftText = activityInfo?.getDaysLeftText()
+                val daysLeftText = activityInfo?.let { daysLeftText(it) }
                 val stageItems = stages.map { stage ->
                     StageItem(
                         code = stage.value,
@@ -270,8 +258,10 @@ class ActivityManager(
         // 2. 常驻关卡分组
         // InitializeDefaultStages()     固定关卡（剿灭等）
         val defaultStageItem = StageItem(
-            code = "", displayName = context.getString(R.string.panel_fight_stage_reset_current),
-            isActivityStage = false, isOpenToday = true
+            code = "",
+            displayName = context.getString(R.string.panel_fight_stage_reset_current),
+            isActivityStage = false,
+            isOpenToday = true
         )
 
         // AddPermanentStages()          常驻关卡（主线/资源本等）
@@ -332,6 +322,20 @@ class ActivityManager(
         return _resourceCollection.value?.isOpen == true
     }
 
+    /**
+     * 判断当前是否有 SideStory 活动进行中。
+     * 迁移自 WPF StageManager.IsActivityOpen。
+     *
+     * 只看 SideStory 类活动，排除资源收集（后者由 [isResourceCollectionOpen] 单独判定），
+     * 否则资源收集期间本方法也会为 true，库存保持的两个跳过开关就分不开了。
+     */
+    fun isActivityOpen(): Boolean {
+        return _activityStages.value.any { stage ->
+            val activity = stage.activity
+            activity != null && !activity.isResourceCollection && activity.isOpen
+        }
+    }
+
 
     /**
      * 构建合并关卡字典
@@ -386,15 +390,13 @@ class ActivityManager(
 
         // 今天的两个切换点
         val switchPoints = listOf(
-            today.atTime(4, 0).atZone(serverZone),
-            today.atTime(16, 0).atZone(serverZone)
+            today.atTime(4, 0).atZone(serverZone), today.atTime(16, 0).atZone(serverZone)
         )
 
         // 找到下一个切换点
         val nextSwitch =
-            switchPoints.firstOrNull { it.isAfter(now) }
-                ?: today.plusDays(1).atTime(4, 0)
-                    .atZone(serverZone)
+            switchPoints.firstOrNull { it.isAfter(now) } ?: today.plusDays(1).atTime(4, 0)
+                .atZone(serverZone)
 
         val baseDelay = ChronoUnit.MILLIS.between(now, nextSwitch)
         // 0~10 分钟随机延迟
@@ -428,7 +430,7 @@ class ActivityManager(
             val stageChanged = maaApiService.checkStageActivityChanged()
             val taskChanged = maaApiService.checkTasksChanged()
             if (stageChanged || taskChanged) {
-                val clientType = chainState.getClientType()
+                val clientType = chainState.clientType
                 val type = if (clientType == "Bilibili") "Official" else clientType
                 doLoadActivityStages(type)
                 dirty = true
@@ -464,6 +466,33 @@ class ActivityManager(
     }
 
     /**
+     * 判断指定关卡今日是否开放（鹰角历）。
+     *
+     * 迁移自 WPF StageManager.IsStageOpen：先经 [getStageInfo] 兜底再判定开放状态，
+     * 因此不在候选列表中的「数字型主线关卡」（如 16-14）会被当作常规关卡 → 永远开放；
+     * 「两字母-数字」的过期活动关卡（如 UR-5）→ 判为未开放；空串（当前/上次）→ 视为开放。
+     *
+     * 注意：不要用 [getMergedStageList] 的成员资格来判断开放，那只是 UI 候选池、不含主线关卡。
+     */
+    fun isStageOpen(stage: String, dayOfWeek: DayOfWeek = getYjDayOfWeek()): Boolean {
+        return getStageInfo(stage).isStageOpen(dayOfWeek)
+    }
+
+    /**
+     * 判断指定关卡是否为常驻关卡（无周期限制且非限时活动，每天都开放）。
+     *
+     * 迁移自 WPF FightSettingsUserControlModel.IsPermanentStage：
+     * 资源本（如 LS-6）虽关联资源收集活动，但 isResourceCollection 为 true 且无周期限制，同样视为常驻。
+     * 注意：空串（当前/上次）经 [getStageInfo] fallback 后也会返回 true。
+     */
+    fun isPermanentStage(stage: String): Boolean {
+        val info = getStageInfo(stage)
+        val noPeriodicLimit = info.openDays.isEmpty()
+        val notLimitedActivity = info.activity == null || info.activity.isResourceCollection
+        return noPeriodicLimit && notLimitedActivity
+    }
+
+    /**
      * 关卡是否在列表中
      * 迁移自 WPF StageManager.IsStageInStageList
      */
@@ -489,12 +518,17 @@ class ActivityManager(
      * 迁移自 WPF StageManager.GetStageTips
      *
      * @param dayOfWeek 星期几
+     * @param inventory 仓库识别结果 itemId → 数量，未识别的物品不带库存
      * @return 提示文本行列表
      */
-    fun getStageTips(dayOfWeek: DayOfWeek = getYjDayOfWeek()): List<String> {
+    fun getStageTips(
+        dayOfWeek: DayOfWeek = getYjDayOfWeek(),
+        inventory: Map<String, Int> = emptyMap()
+    ): List<String> {
         val lines = mutableListOf<String>()
         val shownSideStories = mutableSetOf<String>()
         var resourceTipShown = false
+        val inventoryLabel = context.getString(R.string.panel_fight_stage_tip_inventory)
 
         for ((_, stageInfo) in _stages.value) {
             if (!stageInfo.isStageOpen(dayOfWeek)) continue
@@ -503,21 +537,36 @@ class ActivityManager(
 
             // 1. 资源收集活动提示 (只显示一次)
             if (!resourceTipShown && activity != null && activity.isResourceCollection && activity.isOpen) {
-                lines.add(0, "｢${activity.tip}｣ 剩余开放${activity.getDaysLeftText()}")
+                lines.add(0, daysLeftLine(activity.tip, activity))
                 resourceTipShown = true
             }
 
             // 2. 支线活动提示 (按活动名去重)
             if (activity != null && activity.name.isNotEmpty() && !activity.isResourceCollection) {
                 if (shownSideStories.add(activity.name)) {
-                    lines.add("｢${activity.name}｣ 剩余开放${activity.getDaysLeftText()}")
+                    lines.add(daysLeftLine(activity.name, activity))
+                    // 同名活动下的小游戏入口
+                    _miniGames.value
+                        .filter { it.activity == activity.name && it.isOpen }
+                        .forEach { game ->
+                            lines.add(
+                                context.getString(
+                                    R.string.panel_fight_stage_tip_affiliated_mini_game,
+                                    game.display.resolve(context)
+                                )
+                            )
+                        }
                 }
             }
 
-            // 3. 活动关卡掉落物品
+            // 3. 活动关卡掉落物品，识别过的物品带库存
             if (!stageInfo.drop.isNullOrEmpty()) {
                 val text = itemHelper.getItemInfo(stageInfo.drop)?.name ?: stageInfo.drop
-                lines.add("${stageInfo.code}: $text")
+                val count = inventory[stageInfo.drop]
+                lines.add(
+                    if (count != null) "${stageInfo.code}: $text ($inventoryLabel $count)"
+                    else "${stageInfo.code}: $text"
+                )
             }
 
             // 4. 常规关卡提示
@@ -529,12 +578,24 @@ class ActivityManager(
         return lines
     }
 
+    private fun daysLeftLine(name: String, activity: StageActivityInfo): String =
+        "｢$name｣ ${context.getString(R.string.panel_fight_activity_days_left_open)}${
+            daysLeftText(
+                activity
+            )
+        }"
+
+    /** 迁移自 WPF StageManager.GetDaysLeftText */
+    private fun daysLeftText(activity: StageActivityInfo): String {
+        val daysLeft = activity.getDaysLeft()
+        return if (daysLeft > 0) daysLeft.toString()
+        else context.getString(R.string.panel_fight_activity_less_than_one_day)
+    }
+
     // ============ 活动感知过期药辅助 ============
 
     data class ActivitySummary(
-        val name: String,
-        val daysLeft: Long,
-        val isExpiringSoon: Boolean
+        val name: String, val daysLeft: Long, val isExpiringSoon: Boolean
     )
 
     fun isAnyActivityExpiringSoon(): Boolean {
@@ -550,16 +611,24 @@ class ActivityManager(
     }
 
     fun getOpenActivitySummaries(): List<ActivitySummary> {
-        return _activityStages.value
-            .mapNotNull { it.activity }
-            .filter { it.isOpen }
-            .distinctBy { it.name }
-            .map { info ->
+        return _activityStages.value.mapNotNull { it.activity }.filter { it.isOpen }
+            .distinctBy { it.name }.map { info ->
                 val days = info.getDaysLeft()
                 ActivitySummary(
-                    name = info.name,
-                    daysLeft = days,
-                    isExpiringSoon = days < 2
+                    name = info.name, daysLeft = days, isExpiringSoon = days < 2
+                )
+            }
+    }
+
+    companion object {
+        private fun doBuildDefaultMiniGames(): List<MiniGame> =
+            DefaultMiniGames.ENTRIES.map { entry ->
+                MiniGame(
+                    display = uiTextOf(entry.displayRes),
+                    value = entry.value,
+                    utcStartTime = 0L,
+                    utcExpireTime = Long.MAX_VALUE,
+                    tip = uiTextOf(entry.tipRes)
                 )
             }
     }

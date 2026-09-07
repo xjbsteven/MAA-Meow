@@ -27,7 +27,7 @@ class MaaEventNotifier(
         private const val CHANNEL_DEFAULT = "maa_events_low"
         private const val CHANNEL_HIGH = "maa_events_high"
 
-        private const val ID_TASK_STATUS = 9001
+        private const val ID_TASK_STATUS = 9004
         private val eventIdGenerator = AtomicInteger(9100)
     }
 
@@ -65,7 +65,12 @@ class MaaEventNotifier(
     }
 
     fun notifyTaskError(taskName: String) {
-        send(R.string.notification_event_task_error, taskName, ID_TASK_STATUS, isError = true)
+        send(
+            R.string.notification_event_task_error,
+            taskName,
+            eventIdGenerator.getAndIncrement(),
+            isError = true,
+        )
     }
 
     fun notifyRecruitSpecialTag(tag: String) {
@@ -101,8 +106,20 @@ class MaaEventNotifier(
         )
     }
 
+    /** 标题由调用方给定的通用事件通知 */
+    fun notifyEvent(title: String, text: String) {
+        send(title, text, eventIdGenerator.getAndIncrement())
+    }
+
     private fun send(
         @StringRes titleRes: Int,
+        text: String,
+        notifyId: Int,
+        isError: Boolean = false,
+    ) = send(string(titleRes), text, notifyId, isError)
+
+    private fun send(
+        title: String,
         text: String,
         notifyId: Int,
         isError: Boolean = false,
@@ -132,7 +149,6 @@ class MaaEventNotifier(
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
-        val title = string(titleRes)
         val notification = NotificationCompat.Builder(appContext, channelId)
             .setSmallIcon(R.drawable.ic_maa_logo)
             .setContentTitle(title)

@@ -1,8 +1,8 @@
 package com.aliothmoon.maameow.data.model
 
+import com.aliothmoon.maameow.domain.models.putReportFields
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
-import com.aliothmoon.maameow.data.model.TaskParamProvider
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
@@ -238,7 +238,7 @@ data class RecruitConfig(
         )
     }
 
-    override fun toTaskParams(): MaaTaskParams {
+    override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
         // 构建 select 和 confirm 列表
         val selectList = buildList {
             if (chooseLevel3) add(3)
@@ -281,10 +281,12 @@ data class RecruitConfig(
             put("recruitment_time", buildJsonObject {
                 put("3", getChooseLevel3TotalMinutes())
                 put("4", getChooseLevel4TotalMinutes())
-                put("5", getChooseLevel5TotalMinutes())
+                // 对齐上游 v6.13.0-beta.1：5 星时间锁死 9:00，不再读 chooseLevel5Hour/Min
+                put("5", 540)
             })
+            putReportFields(ctx.report)
         }
 
-        return MaaTaskParams(MaaTaskType.RECRUIT, paramsJson.toString())
+        return listOf(MaaTaskParams(MaaTaskType.RECRUIT, paramsJson.toString()))
     }
 }

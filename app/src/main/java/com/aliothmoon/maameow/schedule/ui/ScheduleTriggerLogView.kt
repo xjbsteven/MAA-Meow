@@ -45,11 +45,22 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
+import com.aliothmoon.maameow.manager.PermissionManager
+import com.aliothmoon.maameow.presentation.components.BackendReadyFixHost
 import com.aliothmoon.maameow.presentation.components.TopAppBar
+import com.aliothmoon.maameow.presentation.components.rememberBackendReadyFixState
+import com.aliothmoon.maameow.presentation.navigation.BottomNavTab
+import com.aliothmoon.maameow.presentation.navigation.MainTabNavigator
+import com.aliothmoon.maameow.schedule.model.ExecutionFixMapping
 import com.aliothmoon.maameow.schedule.model.ExecutionResult
+import com.aliothmoon.maameow.schedule.model.ScheduleFixAction
 import com.aliothmoon.maameow.schedule.model.TriggerLogEntry
 import com.aliothmoon.maameow.schedule.service.ScheduleTriggerLogger.TriggerLogSummary
+import com.aliothmoon.maameow.theme.MaaDesignTokens
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.koinInject
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -65,12 +76,38 @@ fun ScheduleTriggerLogView(
     var showClearConfirm by remember { mutableStateOf(false) }
     var deleteConfirmFileName by remember { mutableStateOf<String?>(null) }
 
+    val permissionManager: PermissionManager = koinInject()
+    // 只订阅这一位，免得无关权限变化把整页连同日志列表重组一遍
+    val backendGrantedFlow = remember(permissionManager) {
+        permissionManager.state.map { it.remoteAccessGranted }.distinctUntilChanged()
+    }
+    val backendGranted by backendGrantedFlow.collectAsStateWithLifecycle(
+        permissionManager.permissions.remoteAccessGranted
+    )
+
+    // 解锁凭证在设置 Tab 的 pager 页里，只能让 MainScreen 代切
+    val mainTabNavigator: MainTabNavigator = koinInject()
+    // 详情模式会提前 return，弹窗要放在那之前
+    val backendFix = rememberBackendReadyFixState()
+    BackendReadyFixHost(backendFix)
+
+    fun onFixAction(action: ScheduleFixAction) {
+        when (action) {
+            ScheduleFixAction.UNLOCK_CREDENTIAL ->
+                mainTabNavigator.navigateTo(BottomNavTab.SETTINGS)
+
+            ScheduleFixAction.BACKEND_READY -> backendFix.request()
+        }
+    }
+
     // 详情模式
     if (detail.isNotEmpty()) {
-        BackHandler { viewModel.clearDetail() }
+        BackHandler { viewModel.onClearDetail() }
         DetailView(
             entries = detail,
-            onBack = { viewModel.clearDetail() }
+            onBack = { viewModel.onClearDetail() },
+            onFix = ::onFixAction,
+            backendGranted = backendGranted,
         )
         return
     }
@@ -85,7 +122,10 @@ fun ScheduleTriggerLogView(
                 actions = {
                     if (summaries.isNotEmpty()) {
                         IconButton(onClick = { showClearConfirm = true }) {
-                            Icon(Icons.Rounded.Delete, contentDescription = stringResource(R.string.schedule_log_clear_title))
+                            Icon(
+                                Icons.Rounded.Delete,
+                                contentDescription = stringResource(R.string.schedule_log_clear_title)
+                            )
                         }
                     }
                 }
@@ -133,13 +173,16 @@ fun ScheduleTriggerLogView(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(padding),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    contentPadding = PaddingValues(
+                        horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                        vertical = MaaDesignTokens.Spacing.sm
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.sm)
                 ) {
                     items(summaries, key = { it.fileName }) { summary ->
                         SummaryCard(
                             summary = summary,
-                            onClick = { viewModel.loadDetail(summary.fileName) },
+                            onClick = { viewModel.onLoadDetail(summary.fileName) },
                             onDelete = { deleteConfirmFileName = summary.fileName }
                         )
                     }
@@ -154,12 +197,19 @@ fun ScheduleTriggerLogView(
                 text = { Text(stringResource(R.string.schedule_log_clear_message)) },
                 confirmButton = {
                     TextButton(onClick = {
-                        viewModel.clearAll()
+                        viewModel.onClearAll()
                         showClearConfirm = false
-                    }) { Text(stringResource(R.string.schedule_log_clear_title), color = MaterialTheme.colorScheme.error) }
+                    }) {
+                        Text(
+                            stringResource(R.string.schedule_log_clear_title),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showClearConfirm = false }) { Text(stringResource(R.string.common_cancel)) }
+                    TextButton(onClick = {
+                        showClearConfirm = false
+                    }) { Text(stringResource(R.string.common_cancel)) }
                 }
             )
         }
@@ -171,12 +221,19 @@ fun ScheduleTriggerLogView(
                 text = { Text(stringResource(R.string.schedule_log_delete_message)) },
                 confirmButton = {
                     TextButton(onClick = {
-                        viewModel.deleteLog(deleteConfirmFileName!!)
+                        viewModel.onDeleteLog(deleteConfirmFileName!!)
                         deleteConfirmFileName = null
-                    }) { Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error) }
+                    }) {
+                        Text(
+                            stringResource(R.string.common_delete),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
                 },
                 dismissButton = {
-                    TextButton(onClick = { deleteConfirmFileName = null }) { Text(stringResource(R.string.common_cancel)) }
+                    TextButton(onClick = {
+                        deleteConfirmFileName = null
+                    }) { Text(stringResource(R.string.common_cancel)) }
                 }
             )
         }
@@ -242,6 +299,14 @@ private fun SummaryCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
+                runModeLabel(summary.header.runMode)?.let { modeLabel ->
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.schedule_log_run_mode, modeLabel),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
                 if (summary.footer?.message != null) {
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
@@ -268,6 +333,8 @@ private fun SummaryCard(
 private fun DetailView(
     entries: List<TriggerLogEntry>,
     onBack: () -> Unit,
+    onFix: (ScheduleFixAction) -> Unit,
+    backendGranted: Boolean,
 ) {
     val header = entries.firstOrNull() as? TriggerLogEntry.Header
 
@@ -284,8 +351,11 @@ private fun DetailView(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            contentPadding = PaddingValues(
+                horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                vertical = MaaDesignTokens.Spacing.sm
+            ),
+            verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.sm)
         ) {
             itemsIndexed(entries, key = { index, _ -> index }) { _, entry ->
                 when (entry) {
@@ -306,6 +376,13 @@ private fun DetailView(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        runModeLabel(entry.runMode)?.let { modeLabel ->
+                            Text(
+                                text = stringResource(R.string.schedule_log_run_mode, modeLabel),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
                     }
 
@@ -326,7 +403,9 @@ private fun DetailView(
 
                     is TriggerLogEntry.Footer -> {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                        Row {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Text(
                                 text = formatTimeShort(entry.time),
                                 style = MaterialTheme.typography.bodySmall,
@@ -349,6 +428,21 @@ private fun DetailView(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            // 后端已授权时 BACKEND_READY 无事可做，不摆空操作按钮
+                            ExecutionFixMapping.fixActionFor(entry.result)
+                                ?.takeIf { it != ScheduleFixAction.BACKEND_READY || !backendGranted }
+                                ?.let { fixAction ->
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    TextButton(
+                                        onClick = { onFix(fixAction) },
+                                        contentPadding = PaddingValues(0.dp),
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.schedule_health_fix),
+                                            style = MaterialTheme.typography.labelMedium,
+                                        )
+                                    }
+                                }
                         }
                     }
                 }
@@ -358,6 +452,13 @@ private fun DetailView(
 }
 
 // ==================== 工具方法 ====================
+
+@Composable
+private fun runModeLabel(runMode: String): String? = when (runMode) {
+    "FOREGROUND" -> stringResource(R.string.home_run_mode_foreground)
+    "BACKGROUND" -> stringResource(R.string.home_run_mode_background)
+    else -> null
+}
 
 @Composable
 private fun resultColor(result: ExecutionResult) = when (result) {
@@ -382,7 +483,8 @@ private fun formatTime(epochMs: Long): String {
 
 private fun formatTimeFull(epochMs: Long): String {
     if (epochMs <= 0) return "--"
-    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault()).format(fullDateTimeFormatter)
+    return Instant.ofEpochMilli(epochMs).atZone(ZoneId.systemDefault())
+        .format(fullDateTimeFormatter)
 }
 
 private fun formatTimeShort(epochMs: Long): String {

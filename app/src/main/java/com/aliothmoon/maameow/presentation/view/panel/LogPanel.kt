@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,12 +24,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.List
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.FolderZip
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,38 +45,42 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.aliothmoon.maameow.R
+import com.aliothmoon.maameow.data.model.LogColorRole
 import com.aliothmoon.maameow.data.model.LogItem
+import com.aliothmoon.maameow.data.model.LogLevel
+import com.aliothmoon.maameow.data.model.RecruitCombination
 import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
+import com.aliothmoon.maameow.theme.LocalLogPalette
+import com.aliothmoon.maameow.theme.themedColor
 
-/**
- * 日志面板
- * 以浮层形式显示任务执行日志
- */
+/** 浮层形式的任务执行日志面板。 */
 @Composable
 fun LogPanel(
+    modifier: Modifier = Modifier,
     logs: List<LogItem>,
     onClearLogs: () -> Unit,
-    modifier: Modifier = Modifier,
-    onClose: () -> Unit
+    onExportLogs: (() -> Unit)? = null,
 ) {
     val listState = rememberLazyListState()
     var isAutoScroll by remember { mutableStateOf(true) }
     var selectedLog by remember { mutableStateOf<LogItem?>(null) }
 
-    // 自动滚动到最新日志
-    LaunchedEffect(logs.size) {
+    LaunchedEffect(logs.size, isAutoScroll) {
         if (isAutoScroll && logs.isNotEmpty()) {
-            listState.animateScrollToItem(logs.size - 1)
+            listState.scrollToItem(logs.size - 1)
         }
     }
 
-    // 检测用户手动滚动以停止自动滚动
     LaunchedEffect(listState.isScrollInProgress) {
         if (listState.isScrollInProgress) {
             isAutoScroll = false
@@ -86,7 +88,6 @@ fun LogPanel(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        // 顶部工具栏
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -109,6 +110,15 @@ fun LogPanel(
             }
 
             Row {
+                if (onExportLogs != null) {
+                    IconButton(onClick = onExportLogs) {
+                        Icon(
+                            imageVector = Icons.Rounded.FolderZip,
+                            contentDescription = stringResource(R.string.settings_log_export_title),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
                 IconButton(onClick = onClearLogs) {
                     Icon(
                         imageVector = Icons.Rounded.Delete,
@@ -116,17 +126,9 @@ fun LogPanel(
                         tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                IconButton(onClick = onClose) {
-                    Icon(
-                        imageVector = Icons.Rounded.Close,
-                        contentDescription = stringResource(R.string.common_close),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
             }
         }
 
-        // 日志列表
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 state = listState,
@@ -145,8 +147,7 @@ fun LogPanel(
                 }
             }
 
-            // 自动滚动恢复按钮
-            if (!isAutoScroll && logs.isNotEmpty()) {
+            if (listState.canScrollForward && logs.isNotEmpty()) {
                 IconButton(
                     onClick = { isAutoScroll = true },
                     modifier = Modifier
@@ -159,7 +160,7 @@ fun LogPanel(
                         )
                 ) {
                     Icon(
-                        imageVector = Icons.Outlined.Info,
+                        imageVector = Icons.Filled.KeyboardArrowDown,
                         contentDescription = stringResource(R.string.panel_log_resume_auto_scroll),
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         modifier = Modifier.size(20.dp)
@@ -169,7 +170,6 @@ fun LogPanel(
         }
     }
 
-    // 日志详情弹窗
     selectedLog?.let { log ->
         LogDetailDialog(
             logItem = log,
@@ -178,14 +178,12 @@ fun LogPanel(
     }
 }
 
-/**
- * 单条日志行
- */
 @Composable
 private fun LogLine(
     logItem: LogItem,
     onClick: () -> Unit
 ) {
+    val levelColor = logItem.level.themedColor()
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -197,7 +195,6 @@ private fun LogLine(
             modifier = Modifier.padding(vertical = 4.dp),
             verticalAlignment = Alignment.Top
         ) {
-            // 时间戳
             Text(
                 text = logItem.formattedTime,
                 style = MaterialTheme.typography.labelSmall.copy(
@@ -209,37 +206,21 @@ private fun LogLine(
                 modifier = Modifier.widthIn(min = 55.dp)
             )
 
-            // 级别标识
-            Surface(
-                shape = RoundedCornerShape(3.dp),
-                color = logItem.color.copy(alpha = 0.15f)
-            ) {
-                Text(
-                    text = logItem.level.displayName,
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium
-                    ),
-                    color = logItem.color,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                )
-            }
+            LogLevelBadge(level = logItem.level, color = levelColor, compact = true)
 
             Spacer(modifier = Modifier.width(6.dp))
 
-            // 日志内容
             Text(
                 text = logItem.content,
                 style = MaterialTheme.typography.bodySmall.copy(
                     fontSize = 12.sp
                 ),
-                color = logItem.color,
+                color = levelColor,
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
 
-            // 详情图标
             if (logItem.hasDetails) {
                 Spacer(modifier = Modifier.width(4.dp))
                 Icon(
@@ -253,14 +234,12 @@ private fun LogLine(
     }
 }
 
-/**
- * 日志详情弹窗
- */
 @Composable
 private fun LogDetailDialog(
     logItem: LogItem,
     onDismiss: () -> Unit
 ) {
+    val levelColor = logItem.level.themedColor()
     AdaptiveTaskPromptDialog(
         visible = true,
         title = stringResource(R.string.log_detail_title),
@@ -269,7 +248,7 @@ private fun LogDetailDialog(
         confirmText = stringResource(R.string.common_confirm),
         dismissText = null,
         icon = Icons.Rounded.Info,
-        iconTint = logItem.color,
+        iconTint = levelColor,
         content = {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -279,17 +258,7 @@ private fun LogDetailDialog(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Surface(
-                        shape = RoundedCornerShape(4.dp),
-                        color = logItem.color.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = logItem.level.displayName,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = logItem.color,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
+                    LogLevelBadge(level = logItem.level, color = levelColor, compact = false)
                     Text(
                         text = logItem.formattedTime,
                         style = MaterialTheme.typography.bodySmall,
@@ -297,17 +266,15 @@ private fun LogDetailDialog(
                     )
                 }
 
-                // 日志内容
                 Text(
                     text = logItem.content,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = logItem.color
+                    color = levelColor
                 )
 
-                // 详细信息 (tooltip)
-                val richTooltip = logItem.annotatedTooltip
+                val recruitTooltip = logItem.recruitTooltip
                 val plainTooltip = logItem.tooltip
-                if (richTooltip != null || plainTooltip != null) {
+                if (recruitTooltip != null || plainTooltip != null) {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
                             text = stringResource(R.string.panel_log_details_section),
@@ -318,10 +285,16 @@ private fun LogDetailDialog(
                             shape = RoundedCornerShape(4.dp),
                             color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
-                            if (richTooltip != null) {
+                            if (recruitTooltip != null) {
+                                val tooltipTextColor = MaterialTheme.colorScheme.onSurface
+                                val richTooltip = rememberRecruitTooltipAnnotated(
+                                    data = recruitTooltip,
+                                    defaultColor = tooltipTextColor,
+                                )
                                 Text(
                                     text = richTooltip,
                                     style = MaterialTheme.typography.bodySmall,
+                                    color = tooltipTextColor,
                                     modifier = Modifier
                                         .padding(8.dp)
                                         .fillMaxWidth()
@@ -346,7 +319,6 @@ private fun LogDetailDialog(
                     }
                 }
 
-                // 截图路径（预留）
                 logItem.screenshotPath?.let { path ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(
@@ -365,4 +337,81 @@ private fun LogDetailDialog(
             }
         }
     )
+}
+
+/** [compact] 切换列表行 / 详情弹窗两档尺寸。 */
+@Composable
+private fun LogLevelBadge(
+    level: LogLevel,
+    color: Color,
+    compact: Boolean,
+) {
+    Surface(
+        shape = RoundedCornerShape(if (compact) 3.dp else 4.dp),
+        color = color.copy(alpha = 0.15f)
+    ) {
+        Text(
+            text = stringResource(level.labelRes),
+            style = if (compact) {
+                MaterialTheme.typography.labelSmall.copy(
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            } else {
+                MaterialTheme.typography.labelMedium
+            },
+            color = color,
+            modifier = Modifier.padding(
+                horizontal = if (compact) 4.dp else 6.dp,
+                vertical = if (compact) 1.dp else 2.dp,
+            )
+        )
+    }
+}
+
+/**
+ * [defaultColor] 用于干员名等无星级修饰的片段，应与外层 [Text.color] 一致——
+ * 否则外层 [Surface] 切换 `LocalContentColor` 会让默认色与外层不一致。
+ */
+@Composable
+private fun rememberRecruitTooltipAnnotated(
+    data: List<RecruitCombination>,
+    defaultColor: Color,
+): AnnotatedString {
+    val palette = LocalLogPalette.current
+    return remember(data, palette, defaultColor) {
+        val starColors = arrayOf(
+            Color.Unspecified, // 星级从 1 开始，索引 0 占位
+            palette[LogColorRole.STAR_1],
+            palette[LogColorRole.STAR_2],
+            palette[LogColorRole.STAR_3],
+            palette[LogColorRole.STAR_4],
+            palette[LogColorRole.STAR_5],
+            palette[LogColorRole.STAR_6],
+        )
+
+        fun colorOf(star: Int): Color = starColors.getOrNull(star) ?: defaultColor
+        buildAnnotatedString {
+            data.forEachIndexed { i, combo ->
+                withStyle(
+                    SpanStyle(
+                        color = colorOf(combo.starLevel),
+                        fontWeight = FontWeight.Bold
+                    )
+                ) {
+                    append("${combo.starLevel}★ Tags:  ${combo.tags.joinToString("  ")}")
+                }
+                combo.opers.forEach { oper ->
+                    append("\n  ")
+                    withStyle(SpanStyle(color = colorOf(oper.starLevel))) {
+                        append("★".repeat(oper.starLevel))
+                    }
+                    withStyle(SpanStyle(color = defaultColor)) {
+                        append(" ${oper.name}")
+                    }
+                }
+                if (i < data.lastIndex) append("\n\n")
+            }
+        }
+    }
 }

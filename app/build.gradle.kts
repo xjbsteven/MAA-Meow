@@ -1,5 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.util.Properties
+import javax.xml.parsers.DocumentBuilderFactory
+import org.w3c.dom.Element
 
 plugins {
     alias(libs.plugins.android.application)
@@ -7,6 +9,8 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.ksp)
+    id("com.aliothmoon.maameow.asset-manifest")
+    id("com.aliothmoon.maameow.i18n-verify")
 }
 
 val localProperties = Properties().apply {
@@ -22,13 +26,10 @@ val gitVersionCode: Int by lazy {
     }.standardOutput.asText.get().trim().toInt()
 }
 
-val versionCodeOverride: Int? by lazy {
-    providers.gradleProperty("versionCodeOverride").orNull?.trim()?.toIntOrNull()
-        ?: localProperties.getProperty("versionCodeOverride")?.trim()?.toIntOrNull()
-}
-
 val effectiveVersionCode: Int by lazy {
-    versionCodeOverride ?: gitVersionCode
+    providers.gradleProperty("versionCodeOverride").orNull?.toIntOrNull()
+        ?: localProperties.getProperty("versionCodeOverride")?.toIntOrNull()
+        ?: gitVersionCode
 }
 
 val gitVersionName: String by lazy {
@@ -36,15 +37,45 @@ val gitVersionName: String by lazy {
         commandLine("git", "describe", "--tags", "--always")
         isIgnoreExitValue = true
     }.standardOutput.asText.get().trim()
-    val match = Regex("""^v?(\d+)\.(\d+)\.(\d+)(?:-(\d+)-g[0-9a-f]+)?$""").matchEntire(desc)
+    val match =
+        Regex("""^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.]+))?(?:-(\d+)-g[0-9a-f]+)?$""").matchEntire(
+            desc
+        )
     if (match != null) {
-        val (major, minor, patch, distance) = match.destructured
-        if (distance.isEmpty()) "$major.$minor.$patch"
-        else "$major.$minor.${patch.toInt() + 1}-alpha.$distance"
+        val (major, minor, patch, pre, distance) = match.destructured
+        when {
+            distance.isEmpty() && pre.isEmpty() -> "$major.$minor.$patch"
+            distance.isEmpty() -> "$major.$minor.$patch-$pre"
+            else -> "$major.$minor.${patch.toInt() + 1}-alpha.$distance"
+        }
     } else {
         desc.removePrefix("v").ifEmpty { "0.0.0-dev" }
     }
 }
+
+// 本机默认只编 arm64、关 LTO；CI=true 保持双 ABI + LTO
+// -Pmaa.abi=all|arm64-v8a|x86_64 或 local.properties 覆盖
+val ci = System.getenv("CI")?.equals("true", ignoreCase = true) == true
+val abiRaw = (findProperty("maa.abi") as String?)?.trim().orEmpty()
+    .ifEmpty { (findProperty("devAbi") as String?)?.trim().orEmpty() }
+    .ifEmpty { localProperties.getProperty("maa.abi", "").trim() }
+    .ifEmpty { if (ci) "all" else "arm64-v8a" }
+val nativeAbis: List<String> = if (abiRaw.equals("all", ignoreCase = true)) {
+    listOf("arm64-v8a", "x86_64")
+} else {
+    abiRaw.split(',', ' ').map(String::trim).filter(String::isNotEmpty)
+}
+val nativeLto = when (
+    (findProperty("maa.nativeLto") as String?)?.trim()
+        ?: localProperties.getProperty("maa.nativeLto", "")
+) {
+    "true" -> true
+    "false" -> false
+    else -> ci
+}
+println("[ABI] ${nativeAbis.joinToString()}")
+println("[native] LTO=$nativeLto")
+println("[Java Version] ${System.getProperty("java.version")}")
 
 android {
     namespace = "com.aliothmoon.maameow"
@@ -57,7 +88,7 @@ android {
         targetSdk = 36
         versionCode = effectiveVersionCode
         versionName = gitVersionName
-        println("Build version: versionCode=$versionCode (git=$gitVersionCode, override=$versionCodeOverride), versionName=$versionName")
+        println("Build version: versionCode=$versionCode, versionName=$versionName")
         ndkVersion = "29.0.13113456"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -67,19 +98,15 @@ android {
         buildConfigField("String", "MAA_CORE_VERSION", "\"$maaCoreVersion\"")
 
         ndk {
-            val devAbi = providers.gradleProperty("devAbi")
-            abiFilters.clear()
-            if (devAbi.isPresent) {
-                abiFilters += devAbi.get()
-            } else {
-                abiFilters += listOf("arm64-v8a", "x86_64")
-            }
+            abiFilters.addAll(nativeAbis)
         }
-
-
+        @Suppress("UnstableApiUsage")
         externalNativeBuild {
             cmake {
-                arguments("-DANDROID_STL=c++_shared")
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                    "-DMAA_NATIVE_LTO=${if (nativeLto) "ON" else "OFF"}",
+                )
             }
         }
     }
@@ -101,13 +128,24 @@ android {
     }
 
     buildTypes {
+        val minifyProguardFiles = listOf(
+            getDefaultProguardFile("proguard-android-optimize.txt").absolutePath,
+            "proguard-rules.pro",
+        )
+        // local.properties: maa.debugR8=true 时 debug 也走 R8
+        val debugR8 = localProperties.getProperty("maa.debugR8", "false").toBoolean()
+        getByName("debug") {
+            isMinifyEnabled = debugR8
+            isShrinkResources = debugR8
+            if (debugR8) {
+                proguardFiles(*minifyProguardFiles.toTypedArray())
+                println("[R8] debug minify+shrink enabled (maa.debugR8=true)")
+            }
+        }
         release {
-            isMinifyEnabled = false
-            isShrinkResources = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(*minifyProguardFiles.toTypedArray())
             val keystorePath = System.getenv("KEYSTORE_PATH")
                 ?: localProperties.getProperty("KEYSTORE_PATH", "")
             if (keystorePath.isNotEmpty()) {
@@ -141,15 +179,11 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
-            // Prebuilt MAA/OCR libs break if AGP stripDebugDebugSymbols runs on them
-            // (libMaaUtils.so 17MB -> 1.7MB, WordOcr load failed on device).
             keepDebugSymbols += setOf(
                 "**/libMaaCore.so",
                 "**/libMaaUtils.so",
-                "**/libfastdeploy_ppocr.so",
-                "**/libonnxruntime.so",
-                "**/libopencv_world4.so",
-                "**/libMaaAndroidNativeControlUnit.so",
+                "**/libMaaToolkit.so",
+                "**/libMaaDerpLearning.so",
             )
         }
         resources {
@@ -161,15 +195,8 @@ android {
     }
 
     androidResources {
+        @Suppress("UnstableApiUsage")
         localeFilters += listOf("zh", "en")
-    }
-
-    lint {
-        // AGP 9 强制使用 K2 UAST，其在分析 .gradle.kts 构建脚本时会崩溃
-        // (findFirCompiledSymbol on non-compiled declaration)，导致 release
-        // 构建的 lintVitalRelease 失败。旧的 android.lint.useK2Uast=false 开关
-        // 在 AGP 9 已失效，故关闭 release 期间自动触发的 lint-vital 检查。
-        checkReleaseBuilds = false
     }
 }
 
@@ -191,6 +218,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.process)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.exifinterface)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
@@ -216,6 +244,7 @@ dependencies {
     implementation(libs.xx.permissions)
     implementation(libs.floatingx)
     implementation(libs.floatingx.compose)
+    implementation(libs.sonner)
     implementation(libs.timber)
     implementation(libs.okhttp)
     implementation(libs.angus.mail)
@@ -231,9 +260,11 @@ dependencies {
 
     // Kotlin Serialization
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.xzakota.focus.api)
 
     testImplementation(libs.junit)
     testImplementation(libs.mockk)
+    testImplementation(libs.koin.test)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
@@ -242,8 +273,73 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-// Apply asset manifest generation script
-apply(from = "asset-manifest.gradle.kts")
+abstract class GenerateAchievementStringResTask : DefaultTask() {
 
-// Apply i18n strings consistency gate (verifyI18nStrings hooked to preBuild)
-apply(from = "i18n-verify.gradle.kts")
+    @get:InputFile
+    abstract val stringsFile: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    private val nameRe = Regex("^achievement_([A-Za-z0-9]+)_(title|desc|condition)$")
+
+    @TaskAction
+    fun generate() {
+        val doc = DocumentBuilderFactory.newInstance()
+            .apply { isNamespaceAware = false }
+            .newDocumentBuilder()
+            .parse(stringsFile.get().asFile)
+        val nodes = doc.getElementsByTagName("string")
+
+        val byField = linkedMapOf(
+            "title" to sortedMapOf<String, String>(),
+            "desc" to sortedMapOf(),
+            "condition" to sortedMapOf(),
+        )
+        for (i in 0 until nodes.length) {
+            val el = nodes.item(i) as Element
+            val m = nameRe.matchEntire(el.getAttribute("name")) ?: continue
+            byField.getValue(m.groupValues[2])[m.groupValues[1]] = m.value
+        }
+
+        val code = buildString {
+            appendLine("// AUTO-GENERATED by generate*AchievementStringRes. DO NOT EDIT.")
+            appendLine("package com.aliothmoon.maameow.data.achievement")
+            appendLine()
+            appendLine("import com.aliothmoon.maameow.R")
+            appendLine()
+            appendLine("internal fun achievementStringResId(id: String, field: AchievementField): Int = when (field.key) {")
+            for ((field, entries) in byField) {
+                appendLine("    \"$field\" -> when (id) {")
+                for ((id, resName) in entries) {
+                    appendLine("        \"$id\" -> R.string.$resName")
+                }
+                appendLine("        else -> 0")
+                appendLine("    }")
+            }
+            appendLine("    else -> 0")
+            appendLine("}")
+        }
+
+        val pkgDir = outputDir.get().asFile.resolve("com/aliothmoon/maameow/data/achievement")
+        pkgDir.mkdirs()
+        pkgDir.resolve("AchievementStringResGenerated.kt").writeText(code)
+        logger.lifecycle("Generated achievementStringResId: ${byField.values.sumOf { it.size }} entries")
+    }
+}
+
+androidComponents {
+    onVariants { variant ->
+        val variantName = variant.name.replaceFirstChar { it.uppercaseChar() }
+        val genTask = tasks.register(
+            "generate${variantName}AchievementStringRes",
+            GenerateAchievementStringResTask::class.java,
+        ) {
+            description =
+                "Generate achievement string-resource lookup (avoids Resources.getIdentifier)"
+            group = "build"
+            stringsFile.set(layout.projectDirectory.file("src/main/res/values/strings.xml"))
+        }
+        variant.sources.kotlin?.addGeneratedSourceDirectory(genTask) { it.outputDir }
+    }
+}

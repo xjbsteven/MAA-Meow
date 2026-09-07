@@ -1,7 +1,6 @@
 package com.aliothmoon.maameow.presentation.view.panel
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -15,33 +14,31 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.resource.MiniGameTextRegistry
+import com.aliothmoon.maameow.presentation.components.SelectableCardButton
 import com.aliothmoon.maameow.presentation.viewmodel.MiniGameDelegate
+import com.aliothmoon.maameow.presentation.viewmodel.PixelArtDelegate
 import com.aliothmoon.maameow.utils.i18n.asString
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun MiniGamePanel(
     modifier: Modifier = Modifier,
-    delegate: MiniGameDelegate
+    delegate: MiniGameDelegate,
+    pixelArt: PixelArtDelegate,
 ) {
     val state by delegate.state.collectAsStateWithLifecycle()
     val miniGames by delegate.miniGames.collectAsStateWithLifecycle()
@@ -83,56 +80,17 @@ fun MiniGamePanel(
                         horizontalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         rowGames.forEach { game ->
-                            val selected = state.selectedTaskName == game.value
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (game.isUnsupported) {
-                                    MaterialTheme.colorScheme.errorContainer
-                                } else if (selected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                },
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = if (game.isUnsupported && selected) {
-                                        MaterialTheme.colorScheme.error
-                                    } else if (selected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    }
-                                ),
+                            SelectableCardButton(
+                                text = game.display.asString(),
+                                selected = state.selectedTaskName == game.value,
+                                isError = game.isUnsupported,
+                                onClick = { delegate.onTaskSelected(game.value) },
+                                textStyle = tabTitleTextStyle,
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .heightIn(min = 36.dp)
-                                    .clickable { delegate.onTaskSelected(game.value) }
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Text(
-                                        text = game.display.asString(),
-                                        style = tabTitleTextStyle,
-                                        color = if (game.isUnsupported) {
-                                            MaterialTheme.colorScheme.onErrorContainer
-                                        } else if (selected) {
-                                            MaterialTheme.colorScheme.onPrimaryContainer
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurface
-                                        },
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    )
-                                }
-                            }
+                                    .heightIn(min = 36.dp),
+                            )
                         }
                         repeat(3 - rowGames.size) {
                             Spacer(modifier = Modifier.weight(1f))
@@ -187,6 +145,12 @@ fun MiniGamePanel(
             }
         }
 
+        // 像素画配置：选图 + 转换参数，任务下发仍走底部「开始任务」
+        if (delegate.isPixelPaint(state.selectedTaskName)) {
+            item { HorizontalDivider() }
+            item { PixelArtSection(delegate = pixelArt) }
+        }
+
         // 隐秘战线配置
         if (delegate.isSecretFront(state.selectedTaskName)) {
             item {
@@ -206,20 +170,11 @@ fun MiniGamePanel(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         MiniGameDelegate.ENDINGS.forEach { ending ->
-                            FilterChip(
+                            SelectableCardButton(
+                                text = ending,
                                 selected = state.selectedEnding == ending,
                                 onClick = { delegate.onEndingSelected(ending) },
-                                label = {
-                                    Text(
-                                        text = ending,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                ),
-                                shape = RoundedCornerShape(8.dp),
+                                textStyle = tabTitleTextStyle,
                             )
                         }
                     }
@@ -239,41 +194,12 @@ fun MiniGamePanel(
                         verticalArrangement = Arrangement.spacedBy(5.dp)
                     ) {
                         MiniGameDelegate.EVENTS.forEach { (value, display) ->
-                            val selected = state.selectedEvent == value
-                            Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (selected) {
-                                    MaterialTheme.colorScheme.primaryContainer
-                                } else {
-                                    MaterialTheme.colorScheme.surface
-                                },
-                                border = BorderStroke(
-                                    width = 1.dp,
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    }
-                                ),
-                                modifier = Modifier
-                                    .clickable { delegate.onEventSelected(value) }
-                            ) {
-                                Text(
-                                    text = display.asString(),
-                                    style = tabTitleTextStyle,
-                                    color = if (selected) {
-                                        MaterialTheme.colorScheme.onPrimaryContainer
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                    textAlign = TextAlign.Center,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                                )
-                            }
+                            SelectableCardButton(
+                                text = display.asString(),
+                                selected = state.selectedEvent == value,
+                                onClick = { delegate.onEventSelected(value) },
+                                textStyle = tabTitleTextStyle,
+                            )
                         }
                     }
                 }

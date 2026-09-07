@@ -12,16 +12,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aliothmoon.maameow.R
-import dev.jeziellago.compose.markdowntext.MarkdownText
 
 @Composable
 fun ChangelogDialog(
     content: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    title: String? = null,
 ) {
     AdaptiveTaskPromptDialog(
         visible = true,
-        title = stringResource(R.string.dialog_changelog_title),
+        title = title ?: stringResource(R.string.dialog_changelog_title),
         onConfirm = onDismiss,
         onDismissRequest = onDismiss,
         confirmText = stringResource(R.string.common_i_got_it),
@@ -31,7 +31,7 @@ fun ChangelogDialog(
         content = {
             Column {
                 Spacer(modifier = Modifier.height(12.dp))
-                MarkdownText(
+                MaaMarkdownText(
                     markdown = content,
                     modifier = Modifier.fillMaxWidth(),
                     style = MaterialTheme.typography.bodyMedium

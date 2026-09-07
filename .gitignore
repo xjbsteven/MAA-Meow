@@ -24,6 +24,9 @@ android/.cxx
 # Log Files
 *.log
 
+# Python
+__pycache__/
+
 # IntelliJ
 *.iml
 .idea/
@@ -43,11 +46,10 @@ android/.cxx
 /app/debug
 /gradle/gradle-daemon-jvm.properties
 
-# Local build toolchain (JDK/NDK downloads for offline builds)
+# 本地工具目录
+.pi/
+tmp.txt
+.cache/
 .build-tools/
-
-# Python virtual environment
 .venv/
-
-# Local download / log scratch
 dist/

@@ -763,11 +763,31 @@ object AchievementDefinitions {
             }
         }
         achievement(
+            id = AchievementIds.PALLAS_CHEERS,
+            category = AchievementCategory.EASTER_EGG,
+            hidden = true,
+            rare = true,
+        )
+        // 同意牛牛抽卡免责声明时 unlock（无自动 trigger）
+        achievement(
+            id = AchievementIds.REAL_GACHA,
+            category = AchievementCategory.HUMOR,
+            hidden = true,
+            rare = true,
+        )
+        achievement(
             id = AchievementIds.SLACKING_OFF,
             category = AchievementCategory.EASTER_EGG,
             hidden = true,
         ) {
             trigger(AchievementEvents.MINI_GAME_STARTED, AchievementTriggerMode.UNLOCK)
+        }
+        achievement(
+            id = AchievementIds.ANNOUNCEMENT_STUBBORN_CLICK,
+            category = AchievementCategory.EASTER_EGG,
+            hidden = true,
+        ) {
+            trigger(AchievementEvents.ANNOUNCEMENT_STUBBORN_CLICK, AchievementTriggerMode.UNLOCK)
         }
         // endregion
     }

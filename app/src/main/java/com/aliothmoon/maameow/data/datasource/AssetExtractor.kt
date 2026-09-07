@@ -1,8 +1,11 @@
 package com.aliothmoon.maameow.data.datasource
 
 import android.content.Context
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.AssetManifest
 import com.aliothmoon.maameow.utils.JsonUtils
+import com.aliothmoon.maameow.utils.i18n.LocalizedException
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -10,7 +13,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.json.Json
 import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
@@ -31,7 +33,7 @@ class AssetExtractor(private val context: Context) {
         failedFile: String,
         attempts: Int,
         cause: Throwable
-    ) : Exception("文件 $failedFile 在 $attempts 次尝试后仍失败", cause)
+    ) : LocalizedException(uiTextOf(R.string.resource_extract_failed, failedFile, attempts), cause)
 
     private val json = JsonUtils.common
 

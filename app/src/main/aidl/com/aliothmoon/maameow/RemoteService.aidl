@@ -1,6 +1,7 @@
 package com.aliothmoon.maameow;
 
 import android.content.Intent;
+import android.os.ParcelFileDescriptor;
 import android.view.Surface;
 import com.aliothmoon.maameow.ITouchEventCallback;
 import com.aliothmoon.maameow.MaaCoreService;
@@ -25,7 +26,7 @@ interface RemoteService {
 
     MaaCoreService getMaaCoreService() = 9;
 
-    boolean setup(String userDir,boolean isDebug) = 10;
+    int setup(String userDir,boolean isDebug) = 10;
 
     PermissionStateInfo grantPermissions(in PermissionGrantRequest request) = 11;
 
@@ -37,15 +38,22 @@ interface RemoteService {
 
     void stopVirtualDisplay() = 15;
 
-    oneway void touchDown(int x, int y) = 17;
+    // contact: 手指 id 0..15，与 MotionEvent pointer id 一致
+    oneway void touchDown(int x, int y, int contact) = 17;
 
-    oneway void touchMove(int x, int y) = 18;
+    oneway void touchMove(int x, int y, int contact) = 18;
 
-    oneway void touchUp(int x, int y) = 19;
+    oneway void touchUp(int x, int y, int contact) = 19;
+
+    // 整体取消当前手势，预览退出时仍按着的手指由远端释放
+    oneway void touchCancel() = 42;
+
+    // 后台模式游戏实时帧率，未监控返回 -1
+    float getGameFps() = 43;
 
     oneway void setDisplayPower(boolean on) = 20;
 
-    oneway void setPlayAudioOpAllowed(String packageName, boolean isAllowed) = 21;
+    boolean setPlayAudioOpAllowed(String packageName, boolean isAllowed) = 21;
 
     int pid() = 22;
 
@@ -68,4 +76,43 @@ interface RemoteService {
     // 调试用：抓取当前帧缓冲，编码为 PNG 写入 dirPath 目录（由远端 shell 进程直接落盘，
     // 避免跨进程读取 ashmem 被 SELinux 拒绝）。返回保存的绝对路径，失败返回 null。仅调试模式 UI 调用。
     String captureFramePng(String dirPath) = 31;
+
+    // 把漂移到其它 display 的应用任务拉回虚拟显示器，成功返回 true
+    boolean moveAppToVirtualDisplay(String packageName) = 32;
+
+    int unlock(String credential) = 33;
+
+    int lockAndSleep() = 34;
+
+    int testUnlock(String credential) = 35;
+
+    oneway void startGestureRecord(int timeoutMs) = 36;
+
+    String pollGestureRecord() = 37;
+
+    oneway void cancelGestureRecord() = 38;
+
+    int unlockWithGesture(String gestureJson) = 39;
+
+    int testUnlockGesture(String gestureJson) = 40;
+
+    // HyperOS 发岛时短断 com.xiaomi.xmsf 网络
+    boolean setPackageNetworkingEnabled(String packageName, boolean enabled) = 41;
+
+    // ---- MaaCore 独立数据目录（/data/local/tmp，见 CoreDataDir）----
+    // 内置资源与 stamp 不符时从 apkPath 重解
+    boolean ensureCoreResources(String apkPath, String stamp) = 44;
+
+    boolean applyCoreHotUpdate(in ParcelFileDescriptor zip) = 45;
+
+    String getCoreResourceVersion() = 46;
+
+    boolean putCoreFile(String relPath, in ParcelFileDescriptor src) = 47;
+
+    // 独立目录 debug/ 下的文件相对路径，导出日志时拉取
+    List<String> listCoreDebugFiles() = 48;
+
+    ParcelFileDescriptor openCoreDebugFile(String relPath) = 49;
+
+    boolean clearCoreData() = 50;
 }

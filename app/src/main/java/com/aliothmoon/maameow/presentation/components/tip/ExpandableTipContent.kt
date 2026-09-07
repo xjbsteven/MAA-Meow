@@ -1,6 +1,5 @@
 package com.aliothmoon.maameow.presentation.components.tip
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.padding
@@ -11,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 
 /**
  * 可展开的提示文字区域
@@ -22,7 +22,7 @@ fun ExpandableTipContent(
     tipText: String,
     modifier: Modifier = Modifier
 ) {
-    AnimatedVisibility(
+    MaaAnimatedVisibility(
         visible = visible,
         enter = expandVertically(),
         exit = shrinkVertically(),

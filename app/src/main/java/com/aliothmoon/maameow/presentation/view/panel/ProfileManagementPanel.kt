@@ -1,12 +1,11 @@
 package com.aliothmoon.maameow.presentation.view.panel
 
-import androidx.compose.animation.AnimatedVisibility
+import android.widget.Toast
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -20,15 +19,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import android.widget.Toast
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -45,7 +40,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -53,6 +51,7 @@ import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.TaskProfile
 import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
 import com.aliothmoon.maameow.presentation.components.ITextField
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -90,15 +89,21 @@ fun ProfileManagementPanel(
                 text = stringResource(R.string.panel_profile_title),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
             OutlinedButton(
                 onClick = onCreate,
-                enabled = profiles.size < 10,
                 shape = RoundedCornerShape(4.dp),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
             ) {
-                Text(stringResource(R.string.panel_new_profile), color = MaterialTheme.colorScheme.primary)
+                Text(
+                    text = stringResource(R.string.panel_new_profile),
+                    color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1
+                )
             }
         }
 
@@ -112,7 +117,9 @@ fun ProfileManagementPanel(
         )
         LazyColumn(
             state = lazyListState,
-            modifier = Modifier.fillMaxWidth().weight(1f),
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             itemsIndexed(profiles, key = { _, item -> item.id }) { _, profile ->
@@ -187,6 +194,7 @@ private fun ProfileCard(
 ) {
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+    val profileIdCopiedText = stringResource(R.string.panel_profile_id_copied)
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -280,7 +288,7 @@ private fun ProfileCard(
             }
 
             // 编辑区: 向下展开，包含重命名输入框和 Profile ID 复制
-            AnimatedVisibility(
+            MaaAnimatedVisibility(
                 visible = isEditing,
                 enter = expandVertically(),
                 exit = shrinkVertically()
@@ -305,7 +313,10 @@ private fun ProfileCard(
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         TextButton(onClick = onRenameConfirm) {
-                            Text(stringResource(R.string.common_confirm), style = MaterialTheme.typography.labelMedium)
+                            Text(
+                                stringResource(R.string.common_confirm),
+                                style = MaterialTheme.typography.labelMedium
+                            )
                         }
                     }
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -320,7 +331,8 @@ private fun ProfileCard(
                         IconButton(
                             onClick = {
                                 clipboardManager.setText(AnnotatedString(profile.id))
-                                Toast.makeText(context, context.getString(R.string.panel_profile_id_copied), Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, profileIdCopiedText, Toast.LENGTH_SHORT)
+                                    .show()
                             },
                             modifier = Modifier.size(28.dp)
                         ) {

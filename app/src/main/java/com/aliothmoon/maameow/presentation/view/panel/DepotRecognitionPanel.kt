@@ -2,7 +2,9 @@ package com.aliothmoon.maameow.presentation.view.panel
 
 import android.content.ClipData
 import android.widget.Toast
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,8 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,11 +49,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.toolbox.DepotItem
+import com.aliothmoon.maameow.data.repository.toSortedItems
 import com.aliothmoon.maameow.data.resource.ItemHelper
 import com.aliothmoon.maameow.data.resource.ItemIconLoader
 import com.aliothmoon.maameow.domain.service.ToolboxExportFileType
 import com.aliothmoon.maameow.presentation.viewmodel.ToolboxViewModel
 import com.aliothmoon.maameow.utils.i18n.asString
+import com.aliothmoon.maameow.utils.i18n.formatToolboxSyncTime
 import kotlinx.coroutines.launch
 import org.koin.compose.koinInject
 
@@ -63,8 +66,9 @@ fun DepotRecognitionPanel(
     itemHelper: ItemHelper = koinInject(),
     iconLoader: ItemIconLoader = koinInject()
 ) {
-    val items by viewModel.collector.depotItems.collectAsStateWithLifecycle()
+    val snapshot by viewModel.depotRepository.snapshot.collectAsStateWithLifecycle()
     val itemMap by itemHelper.items.collectAsStateWithLifecycle()
+    val items = remember(snapshot, itemMap) { snapshot.toSortedItems(itemMap) }
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
     val resolvedStatusMessage = statusMessage.asString()
     val clipboard = LocalClipboard.current
@@ -81,7 +85,7 @@ fun DepotRecognitionPanel(
         Toast.makeText(context, toast, Toast.LENGTH_SHORT).show()
     }
 
-    if (items.isEmpty()) {
+    if (items.isEmpty() && snapshot.syncTimeMillis <= 0L) {
         DepotEmptyState(modifier, resolvedStatusMessage)
         return
     }
@@ -98,11 +102,38 @@ fun DepotRecognitionPanel(
         // 统计信息 + 导出按钮
         item(span = { GridItemSpan(maxLineSpan) }) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = stringResource(R.string.panel_depot_item_count, items.size),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (resolvedStatusMessage.isNotEmpty()) {
+                    Text(
+                        text = resolvedStatusMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.panel_depot_item_count, items.size),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (snapshot.syncTimeMillis > 0L) {
+                        Text(
+                            text = stringResource(
+                                R.string.panel_toolbox_last_sync,
+                                formatToolboxSyncTime(snapshot.syncTimeMillis),
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.padding(start = 8.dp),
+                        )
+                    }
+                }
                 ExportFormatRow(
                     label = stringResource(R.string.panel_depot_format_penguin),
                     onCopy = { doCopy(viewModel.exportDepotArkPlanner(), copyPenguinToast) },

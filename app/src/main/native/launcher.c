@@ -57,6 +57,7 @@ typedef struct {
     const char *debug_name;
     const char *log_file;
     int uid;
+    bool keep_root;
 } LauncherArgs;
 
 /* ── 文件日志 ── */
@@ -102,20 +103,20 @@ static bool parse_args(int argc, char **argv, LauncherArgs *out) {
     out->uid = -1;
 
     for (int i = 1; i < argc; ++i) {
-        if (starts_with(argv[i], "--apk="))           out->apk_path      = argv[i] + 6;
-        else if (starts_with(argv[i], "--process-name=")) out->process_name  = argv[i] + 15;
+        if (starts_with(argv[i], "--apk=")) out->apk_path = argv[i] + 6;
+        else if (starts_with(argv[i], "--process-name=")) out->process_name = argv[i] + 15;
         else if (starts_with(argv[i], "--starter-class=")) out->starter_class = argv[i] + 16;
-        else if (starts_with(argv[i], "--token="))     out->token         = argv[i] + 8;
-        else if (starts_with(argv[i], "--package="))   out->package_name  = argv[i] + 10;
-        else if (starts_with(argv[i], "--class="))     out->service_class = argv[i] + 8;
-        else if (starts_with(argv[i], "--debug-name=")) out->debug_name   = argv[i] + 13;
-        else if (starts_with(argv[i], "--log-file="))  out->log_file      = argv[i] + 11;
+        else if (starts_with(argv[i], "--token=")) out->token = argv[i] + 8;
+        else if (starts_with(argv[i], "--package=")) out->package_name = argv[i] + 10;
+        else if (starts_with(argv[i], "--class=")) out->service_class = argv[i] + 8;
+        else if (starts_with(argv[i], "--debug-name=")) out->debug_name = argv[i] + 13;
+        else if (starts_with(argv[i], "--log-file=")) out->log_file = argv[i] + 11;
         else if (starts_with(argv[i], "--uid=")) {
             if (!parse_int(argv[i] + 6, &out->uid)) {
                 LOGE("Invalid uid: %s", argv[i] + 6);
                 return false;
             }
-        }
+        } else if (strcmp(argv[i], "--keep-root") == 0) out->keep_root = true;
     }
 
     return out->apk_path != NULL
@@ -132,7 +133,10 @@ static bool parse_args(int argc, char **argv, LauncherArgs *out) {
 static char *format_arg(const char *prefix, const char *value) {
     size_t size = strlen(prefix) + strlen(value) + 1;
     char *out = (char *) malloc(size);
-    if (out == NULL) { LOGE("malloc failed: %s", strerror(errno)); return NULL; }
+    if (out == NULL) {
+        LOGE("malloc failed: %s", strerror(errno));
+        return NULL;
+    }
     snprintf(out, size, "%s%s", prefix, value);
     return out;
 }
@@ -147,17 +151,21 @@ static void exec_app_process(const LauncherArgs *args) {
     snprintf(uid_text, sizeof(uid_text), "%d", args->uid);
 
     nice_name_arg = format_arg("--nice-name=", args->process_name);
-    token_arg     = format_arg("--token=",     args->token);
-    package_arg   = format_arg("--package=",   args->package_name);
-    service_arg   = format_arg("--class=",     args->service_class);
-    uid_arg       = format_arg("--uid=",       uid_text);
+    token_arg = format_arg("--token=", args->token);
+    package_arg = format_arg("--package=", args->package_name);
+    service_arg = format_arg("--class=", args->service_class);
+    uid_arg = format_arg("--uid=", uid_text);
     if (args->debug_name != NULL)
         debug_arg = format_arg("--debug-name=", args->debug_name);
 
     if (!nice_name_arg || !token_arg || !package_arg || !service_arg || !uid_arg
         || (args->debug_name != NULL && !debug_arg)) {
-        free(nice_name_arg); free(token_arg); free(package_arg);
-        free(service_arg);   free(uid_arg);   free(debug_arg);
+        free(nice_name_arg);
+        free(token_arg);
+        free(package_arg);
+        free(service_arg);
+        free(uid_arg);
+        free(debug_arg);
         exit(1);
     }
 
@@ -187,15 +195,19 @@ static void exec_app_process(const LauncherArgs *args) {
 
     execv(kAppProcessPath, exec_args);
     LOGE("execv(%s) failed: %s", kAppProcessPath, strerror(errno));
-    free(nice_name_arg); free(token_arg); free(package_arg);
-    free(service_arg);   free(uid_arg);   free(debug_arg);
+    free(nice_name_arg);
+    free(token_arg);
+    free(package_arg);
+    free(service_arg);
+    free(uid_arg);
+    free(debug_arg);
     exit(1);
 }
 
 /* ── main ── */
 
 int main(int argc, char **argv) {
-    LauncherArgs args;
+    LauncherArgs args = {0};
 
     if (!parse_args(argc, argv, &args)) {
         LOGE("Missing required launcher args");
@@ -215,6 +227,9 @@ int main(int argc, char **argv) {
 
     LOGFI("launcher start: apk=%s uid=%d", args.apk_path, args.uid);
 
+    /* 始终 fork：Shizuku newProcess 在 App 死亡时会对其追踪的进程发 SIGTERM，
+       ART 收到信号直接退出不跑 shutdown hook；让 launcher 承受信号，
+       服务子进程靠 binder 死亡回调自行清理（静音恢复等）后退出 */
     pid_t child = fork();
     if (child < 0) {
         LOGFE("fork failed: %s", strerror(errno));
@@ -222,27 +237,32 @@ int main(int argc, char **argv) {
     }
 
     if (child == 0) {
-        static const size_t kGidCount =
-                sizeof(kRequiredShellGids) / sizeof(kRequiredShellGids[0]);
+        /* 已是 shell 身份（Shizuku adb 模式）：非 root 下 setgroups 会 EPERM，跳过降权 */
+        if (getuid() == kShellUid) {
+            LOGFI("already shell uid, skip demotion");
+        } else if (!args.keep_root) {
+            static const size_t kGidCount =
+                    sizeof(kRequiredShellGids) / sizeof(kRequiredShellGids[0]);
 
-        int sg_ret = setgroups((int) kGidCount, kRequiredShellGids);
-        if (sg_ret != 0) {
-            LOGFW("setgroups(%zu gids) failed: %s — continuing", kGidCount, strerror(errno));
-        } else {
-            LOGFI("setgroups(%zu gids): ok", kGidCount);
-        }
+            int sg_ret = setgroups((int) kGidCount, kRequiredShellGids);
+            if (sg_ret != 0) {
+                LOGFW("setgroups(%zu gids) failed: %s — continuing", kGidCount, strerror(errno));
+            } else {
+                LOGFI("setgroups(%zu gids): ok", kGidCount);
+            }
 
-        if (setresgid(kShellUid, kShellUid, kShellUid) != 0) {
-            LOGFE("setresgid(%u) failed: %s", (unsigned) kShellUid, strerror(errno));
-            _exit(1);
-        }
-        LOGFI("setresgid(%u): ok", (unsigned) kShellUid);
+            if (setresgid(kShellUid, kShellUid, kShellUid) != 0) {
+                LOGFE("setresgid(%u) failed: %s", (unsigned) kShellUid, strerror(errno));
+                _exit(1);
+            }
+            LOGFI("setresgid(%u): ok", (unsigned) kShellUid);
 
-        if (setresuid(kShellUid, kShellUid, kShellUid) != 0) {
-            LOGFE("setresuid(%u) failed: %s", (unsigned) kShellUid, strerror(errno));
-            _exit(1);
+            if (setresuid(kShellUid, kShellUid, kShellUid) != 0) {
+                LOGFE("setresuid(%u) failed: %s", (unsigned) kShellUid, strerror(errno));
+                _exit(1);
+            }
+            LOGFI("setresuid(%u): ok — exec app_process", (unsigned) kShellUid);
         }
-        LOGFI("setresuid(%u): ok — exec app_process", (unsigned) kShellUid);
 
         exec_app_process(&args);
         _exit(1);

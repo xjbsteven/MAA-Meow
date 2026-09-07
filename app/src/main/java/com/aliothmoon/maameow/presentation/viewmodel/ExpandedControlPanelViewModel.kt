@@ -1,34 +1,35 @@
 package com.aliothmoon.maameow.presentation.viewmodel
 
 import android.content.Context
-import android.widget.Toast
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aliothmoon.maameow.data.model.LogItem
 import com.aliothmoon.maameow.data.model.TaskParamProvider
 import com.aliothmoon.maameow.data.model.TaskTypeInfo
 import com.aliothmoon.maameow.data.preferences.TaskChainState
+import com.aliothmoon.maameow.domain.service.AchievementReporter
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.service.MaaSessionLogger
-import com.aliothmoon.maameow.domain.service.AchievementReporter
 import com.aliothmoon.maameow.domain.usecase.PrepareTaskStartUseCase
-import com.aliothmoon.maameow.domain.usecase.TaskStartAcknowledgement
 import com.aliothmoon.maameow.domain.usecase.TaskStartContext
 import com.aliothmoon.maameow.domain.usecase.TaskStartDecision
 import com.aliothmoon.maameow.domain.usecase.TaskStartMode
 import com.aliothmoon.maameow.overlay.OverlayController
+import com.aliothmoon.maameow.presentation.state.UiEffect
 import com.aliothmoon.maameow.presentation.view.panel.FloatingPanelState
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogConfirmAction
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogUiState
 import com.aliothmoon.maameow.presentation.view.panel.PanelTab
 import com.aliothmoon.maameow.utils.i18n.resolve
-import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 
 
@@ -45,6 +46,10 @@ class ExpandedControlPanelViewModel(
     private val _state = MutableStateFlow(FloatingPanelState())
     val state: StateFlow<FloatingPanelState> = _state.asStateFlow()
     val runtimeLogs: StateFlow<List<LogItem>> = sessionLogger.logs
+
+    private val _effects = Channel<UiEffect>(Channel.BUFFERED)
+    val effects = _effects.receiveAsFlow()
+
     private var pendingStartContext: TaskStartContext? = null
 
     init {
@@ -53,6 +58,30 @@ class ExpandedControlPanelViewModel(
                 Timber.d("Overlay result received: $endState")
                 showDialog(application.createExecutionEndDialog(endState))
             }
+        }
+        observeDefaultTaskSelection()
+    }
+
+    /**
+     * 首次展开 / 选中失效时默认打开任务链第一项，避免右侧一直停在空占位
+     * 新增任务、配置管理模式下不自动改写选中
+     */
+    private fun observeDefaultTaskSelection() {
+        viewModelScope.launch {
+            combine(chainState.chain, _state) { nodes, ui ->
+                resolveTaskPanelSelectedNodeId(
+                    nodes = nodes,
+                    selectedNodeId = ui.selectedNodeId,
+                    isAddingTask = ui.isAddingTask,
+                    isProfileMode = ui.isProfileMode,
+                )
+            }
+                .distinctUntilChanged()
+                .collect { resolved ->
+                    if (_state.value.selectedNodeId != resolved) {
+                        _state.update { it.copy(selectedNodeId = resolved) }
+                    }
+                }
         }
     }
 
@@ -86,12 +115,24 @@ class ExpandedControlPanelViewModel(
     }
 
     fun onToggleEditMode() {
-        _state.update { it.copy(isEditMode = !it.isEditMode, isAddingTask = false, isProfileMode = false) }
+        _state.update {
+            it.copy(
+                isEditMode = !it.isEditMode,
+                isAddingTask = false,
+                isProfileMode = false
+            )
+        }
         Timber.d("Edit mode toggled: %s", _state.value.isEditMode)
     }
 
     fun onToggleProfileMode() {
-        _state.update { it.copy(isProfileMode = !it.isProfileMode, isEditMode = false, isAddingTask = false) }
+        _state.update {
+            it.copy(
+                isProfileMode = !it.isProfileMode,
+                isEditMode = false,
+                isAddingTask = false
+            )
+        }
         Timber.d("Profile mode toggled: %s", _state.value.isProfileMode)
     }
 
@@ -112,7 +153,7 @@ class ExpandedControlPanelViewModel(
 
     fun onDeleteProfile(profileId: String) {
         viewModelScope.launch {
-            chainState.deleteProfile(profileId)
+            chainState.removeProfile(profileId)
             _state.update { it.copy(selectedNodeId = null) }
         }
     }
@@ -199,15 +240,11 @@ class ExpandedControlPanelViewModel(
             }
 
             PanelDialogConfirmAction.CONFIRM_PENDING_START -> {
-                val pendingContext = pendingStartContext
+                val pending = pendingStartContext
                 _state.update { it.copy(dialog = null) }
                 pendingStartContext = null
-                if (pendingContext != null) {
-                    launchManualStart(
-                        pendingContext.acknowledged(
-                            TaskStartAcknowledgement.GAME_NOT_RUNNING_WITHOUT_WAKE_UP
-                        )
-                    )
+                if (pending != null) {
+                    launchManualStart(pending)
                 }
             }
 
@@ -258,7 +295,7 @@ class ExpandedControlPanelViewModel(
                 }
 
                 is TaskStartDecision.RequiresConfirmation -> {
-                    pendingStartContext = context
+                    pendingStartContext = context.acknowledged(decision.acknowledgement)
                     showDialog(
                         application.createStartWarningDialog(
                             application.resolveTaskStartDecisionMessage(decision)
@@ -278,6 +315,7 @@ class ExpandedControlPanelViewModel(
             val result = compositionService.start(
                 tasks = plan.params,
                 clientType = plan.clientType,
+                preflightLogs = plan.logs,
             )
             val message = application.formatStartResult(result)
             if (result is MaaCompositionService.StartResult.Success) {
@@ -287,13 +325,7 @@ class ExpandedControlPanelViewModel(
                     gameAliveBeforeStart = plan.gameAliveBeforeStart,
                 )
                 // 成功时用 Toast 简短提示
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(
-                        application,
-                        message.resolve(application),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
+                _effects.send(UiEffect.toast(message))
             } else {
                 // 失败时通过 StateFlow 通知 UI 展示 OverlayDialog
                 Timber.w("Start failed: %s", message.resolve(application))

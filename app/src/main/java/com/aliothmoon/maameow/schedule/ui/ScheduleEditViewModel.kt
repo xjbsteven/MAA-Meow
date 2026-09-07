@@ -1,25 +1,31 @@
 package com.aliothmoon.maameow.schedule.ui
 
-import android.app.AlarmManager
 import android.content.Context
-import android.os.Build
-import android.os.PowerManager
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.model.TaskProfile
+import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.data.preferences.TaskChainState
+import com.aliothmoon.maameow.domain.models.RunMode
+import com.aliothmoon.maameow.manager.PermissionManager
 import com.aliothmoon.maameow.schedule.data.ScheduleStrategyRepository
+import com.aliothmoon.maameow.schedule.model.ScheduleHealthIssue
+import com.aliothmoon.maameow.schedule.model.ScheduleHealthLogic
+import com.aliothmoon.maameow.schedule.model.ScheduleHealthSnapshot
 import com.aliothmoon.maameow.schedule.model.ScheduleStrategy
 import com.aliothmoon.maameow.schedule.model.ScheduleType
 import com.aliothmoon.maameow.schedule.service.ScheduleAlarmManager
 import com.aliothmoon.maameow.utils.i18n.UiText
 import com.aliothmoon.maameow.utils.i18n.uiTextOf
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -42,21 +48,49 @@ data class ScheduleEditUiState(
     val profiles: List<TaskProfile> = emptyList(),
     val selectedProfileId: String? = null,
     val forceStart: Boolean = false,
+    val autoScreenSaver: Boolean = false,
+    val autoSleepAfterTask: Boolean = false,
+    val skipAutoSleepIfAwake: Boolean = false,
+    val closeGameAfterTask: Boolean = false,
     val isSaving: Boolean = false,
     val saveSuccess: Boolean = false,
-    val needBatteryOptimization: Boolean = false,
-    val needExactAlarm: Boolean = false,
+    /** 空列表 = 无需向导 */
+    val wizardPending: List<ScheduleHealthIssue> = emptyList(),
     val errorMessage: UiText? = null
 )
+
+/** 「任务结束后关闭游戏」当前实际会不会生效 */
+enum class CloseGameEffect {
+    ForegroundInactive,
+    GlobalOverride,
+    StrategyActive,
+    Inactive,
+}
 
 class ScheduleEditViewModel(
     private val repository: ScheduleStrategyRepository,
     private val taskChainState: TaskChainState,
     private val scheduleAlarmManager: ScheduleAlarmManager,
+    private val permissionManager: PermissionManager,
+    appSettings: AppSettingsManager,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ScheduleEditUiState())
     val state: StateFlow<ScheduleEditUiState> = _state.asStateFlow()
+
+    /** 与 LaunchPipeline 的判定同源，改一处必须改另一处 */
+    val closeGameEffect: StateFlow<CloseGameEffect> = combine(
+        _state,
+        appSettings.runMode,
+        appSettings.closeAppOnTaskEnd,
+    ) { state, runMode, globalOn ->
+        when {
+            runMode != RunMode.BACKGROUND -> CloseGameEffect.ForegroundInactive
+            globalOn -> CloseGameEffect.GlobalOverride
+            state.closeGameAfterTask -> CloseGameEffect.StrategyActive
+            else -> CloseGameEffect.Inactive
+        }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CloseGameEffect.Inactive)
 
     private var strategyId: String? = null
     private var existingStrategy: ScheduleStrategy? = null
@@ -89,6 +123,10 @@ class ScheduleEditViewModel(
                         profiles = profiles,
                         selectedProfileId = strategy.profileId,
                         forceStart = strategy.forceStart,
+                        autoScreenSaver = strategy.autoScreenSaver,
+                        autoSleepAfterTask = strategy.autoSleepAfterTask,
+                        skipAutoSleepIfAwake = strategy.skipAutoSleepIfAwake,
+                        closeGameAfterTask = strategy.closeGameAfterTask,
                     )
                     return@launch
                 }
@@ -102,7 +140,7 @@ class ScheduleEditViewModel(
             _state.value = ScheduleEditUiState(
                 name = defaultName,
                 profiles = profiles,
-                selectedProfileId = taskChainState.activeProfileId.value.ifEmpty { profiles.firstOrNull()?.id }
+                selectedProfileId = taskChainState.profileId.value.ifEmpty { profiles.firstOrNull()?.id },
             )
         }
     }
@@ -169,6 +207,22 @@ class ScheduleEditViewModel(
         _state.update { it.copy(forceStart = value) }
     }
 
+    fun onAutoScreenSaverChanged(value: Boolean) {
+        _state.update { it.copy(autoScreenSaver = value) }
+    }
+
+    fun onAutoSleepAfterTaskChanged(value: Boolean) {
+        _state.update { it.copy(autoSleepAfterTask = value) }
+    }
+
+    fun onSkipAutoSleepIfAwakeChanged(value: Boolean) {
+        _state.update { it.copy(skipAutoSleepIfAwake = value) }
+    }
+
+    fun onCloseGameAfterTaskChanged(value: Boolean) {
+        _state.update { it.copy(closeGameAfterTask = value) }
+    }
+
     fun onReplaceTime(old: LocalTime, new: LocalTime) {
         _state.update { state ->
             val updated =
@@ -229,6 +283,10 @@ class ScheduleEditViewModel(
                     intervalMinutes = intervalMinutes,
                     profileId = current.selectedProfileId,
                     forceStart = current.forceStart,
+                    autoScreenSaver = current.autoScreenSaver,
+                    autoSleepAfterTask = current.autoSleepAfterTask,
+                    skipAutoSleepIfAwake = current.skipAutoSleepIfAwake,
+                    closeGameAfterTask = current.closeGameAfterTask,
                 ) ?: ScheduleStrategy(
                     id = strategyId ?: UUID.randomUUID().toString(),
                     name = current.name.trim(),
@@ -240,6 +298,10 @@ class ScheduleEditViewModel(
                     intervalMinutes = intervalMinutes,
                     profileId = current.selectedProfileId,
                     forceStart = current.forceStart,
+                    autoScreenSaver = current.autoScreenSaver,
+                    autoSleepAfterTask = current.autoSleepAfterTask,
+                    skipAutoSleepIfAwake = current.skipAutoSleepIfAwake,
+                    closeGameAfterTask = current.closeGameAfterTask,
                 )
 
                 if (current.isNew) {
@@ -252,18 +314,12 @@ class ScheduleEditViewModel(
                 scheduleAlarmManager.scheduleNext(strategy)
 
                 // 检查关键权限
-                val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-                val batteryOk = pm.isIgnoringBatteryOptimizations(context.packageName)
-                val alarmOk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    (context.getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
-                } else true
+                refreshPermissionChecks()
 
                 _state.update {
                     it.copy(
                         isSaving = false,
                         saveSuccess = true,
-                        needBatteryOptimization = !batteryOk,
-                        needExactAlarm = !alarmOk
                     )
                 }
             }.onFailure { e ->
@@ -277,6 +333,27 @@ class ScheduleEditViewModel(
                     )
                 }
             }
+        }
+    }
+
+    /** 悬浮窗仅在策略勾选屏保时纳入，免得向导走完又被健康卡 nag 一遍 */
+    fun refreshPermissionChecks() {
+        // 先刷新，避免依赖 onResume 回调顺序
+        permissionManager.refresh()
+        val permissions = permissionManager.permissions
+        _state.update {
+            it.copy(
+                wizardPending = ScheduleHealthLogic.wizardItems(
+                    ScheduleHealthSnapshot(
+                        backendGranted = permissions.remoteAccessGranted,
+                        batteryWhitelist = permissions.batteryWhitelist,
+                        notification = permissions.notification,
+                        exactAlarmAllowed = scheduleAlarmManager.canScheduleExact(),
+                        overlayGranted = permissions.overlay,
+                        overlayNeeded = it.autoScreenSaver,
+                    )
+                )
+            )
         }
     }
 

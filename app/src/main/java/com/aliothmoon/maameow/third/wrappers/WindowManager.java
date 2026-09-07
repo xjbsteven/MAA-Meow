@@ -16,34 +16,39 @@ public final class WindowManager {
     public static final int DISPLAY_IME_POLICY_LOCAL = 0;
     public static final int DISPLAY_IME_POLICY_FALLBACK_DISPLAY = 1;
     public static final int DISPLAY_IME_POLICY_HIDE = 2;
-
+    private static final String TASK_FPS_CALLBACK_CLASS = "android.window.ITaskFpsCallback";
+    private static Class<?> captureArgsClass;
+    private static Class<?> screenCaptureListenerClass;
     private final IInterface manager;
     private Method getRotationMethod;
-
     private Method freezeDisplayRotationMethod;
     private int freezeDisplayRotationMethodVersion;
-
     private Method isDisplayRotationFrozenMethod;
     private int isDisplayRotationFrozenMethodVersion;
-
     private Method thawDisplayRotationMethod;
     private int thawDisplayRotationMethodVersion;
-
     private Method getDisplayImePolicyMethod;
     private Method setDisplayImePolicyMethod;
-
     private Method setForcedDisplaySizeMethod;
     private Method clearForcedDisplaySizeMethod;
-
     private Method syncInputTransactions;
+    private Method registerTaskFpsCallbackMethod;
+    private Method unregisterTaskFpsCallbackMethod;
+    private Method captureDisplayMethod;
+    private Method isKeyguardLockedMethod;
+    private Method isKeyguardSecureMethod;
+    private int isKeyguardSecureMethodVersion;
+    private Method dismissKeyguardMethod;
+    private Method lockNowMethod;
+    private int lockNowMethodVersion = -1;
+
+    private WindowManager(IInterface manager) {
+        this.manager = manager;
+    }
 
     static WindowManager create() {
         IInterface manager = ServiceManager.getService("window", "android.view.IWindowManager");
         return new WindowManager(manager);
-    }
-
-    private WindowManager(IInterface manager) {
-        this.manager = manager;
     }
 
     private Method getGetRotationMethod() throws NoSuchMethodException {
@@ -120,6 +125,61 @@ public final class WindowManager {
         return thawDisplayRotationMethod;
     }
 
+    private Method getRegisterTaskFpsCallbackMethod() throws ReflectiveOperationException {
+        if (registerTaskFpsCallbackMethod == null) {
+            Class<?> callbackClass = Class.forName(TASK_FPS_CALLBACK_CLASS);
+            registerTaskFpsCallbackMethod = manager.getClass().getMethod("registerTaskFpsCallback", int.class, callbackClass);
+        }
+        return registerTaskFpsCallbackMethod;
+    }
+
+    private Method getUnregisterTaskFpsCallbackMethod() throws ReflectiveOperationException {
+        if (unregisterTaskFpsCallbackMethod == null) {
+            Class<?> callbackClass = Class.forName(TASK_FPS_CALLBACK_CLASS);
+            unregisterTaskFpsCallbackMethod = manager.getClass().getMethod("unregisterTaskFpsCallback", callbackClass);
+        }
+        return unregisterTaskFpsCallbackMethod;
+    }
+
+    // Android 13+；callback 需实现框架侧 ITaskFpsCallback（动态代理即可），调用方持有 ACCESS_FPS_COUNTER
+    public boolean registerTaskFpsCallback(int taskId, Object callback) {
+        try {
+            getRegisterTaskFpsCallbackMethod().invoke(manager, taskId, callback);
+            return true;
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke method", e);
+            return false;
+        }
+    }
+
+//    @TargetApi(AndroidVersions.API_30_ANDROID_11)
+//    public int[] registerDisplayWindowListener(IDisplayWindowListener listener) {
+//        try {
+//            return (int[]) manager.getClass().getMethod("registerDisplayWindowListener", IDisplayWindowListener.class).invoke(manager, listener);
+//        } catch (Exception e) {
+//            Ln.e("Could not register display window listener", e);
+//        }
+//        return null;
+//    }
+//
+//    @TargetApi(AndroidVersions.API_30_ANDROID_11)
+//    public void unregisterDisplayWindowListener(IDisplayWindowListener listener) {
+//        try {
+//            manager.getClass().getMethod("unregisterDisplayWindowListener", IDisplayWindowListener.class).invoke(manager, listener);
+//        } catch (Exception e) {
+//            Ln.e("Could not unregister display window listener", e);
+//        }
+//    }
+
+    public boolean unregisterTaskFpsCallback(Object callback) {
+        try {
+            getUnregisterTaskFpsCallbackMethod().invoke(manager, callback);
+            return true;
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke method", e);
+            return false;
+        }
+    }
 
     private Method getSetForcedDisplaySizeMethod() throws NoSuchMethodException {
         if (setForcedDisplaySizeMethod == null) {
@@ -135,7 +195,6 @@ public final class WindowManager {
         return clearForcedDisplaySizeMethod;
     }
 
-
     public boolean setForcedDisplaySize(int displayId, int width, int height) {
         try {
             Method method = getSetForcedDisplaySizeMethod();
@@ -147,6 +206,8 @@ public final class WindowManager {
         return false;
     }
 
+    // ============ Android 14+ 截图支持 ============
+
     public boolean clearForcedDisplaySize(int displayId) {
         try {
             Method method = getClearForcedDisplaySizeMethod();
@@ -157,7 +218,6 @@ public final class WindowManager {
         }
         return false;
     }
-
 
     public int getRotation() {
         try {
@@ -211,6 +271,8 @@ public final class WindowManager {
         }
     }
 
+    // ───────────────── Keyguard ─────────────────
+
     public void thawRotation(int displayId) {
         try {
             Method method = getThawDisplayRotationMethod();
@@ -233,25 +295,6 @@ public final class WindowManager {
             Ln.e("Could not invoke method", e);
         }
     }
-
-//    @TargetApi(AndroidVersions.API_30_ANDROID_11)
-//    public int[] registerDisplayWindowListener(IDisplayWindowListener listener) {
-//        try {
-//            return (int[]) manager.getClass().getMethod("registerDisplayWindowListener", IDisplayWindowListener.class).invoke(manager, listener);
-//        } catch (Exception e) {
-//            Ln.e("Could not register display window listener", e);
-//        }
-//        return null;
-//    }
-//
-//    @TargetApi(AndroidVersions.API_30_ANDROID_11)
-//    public void unregisterDisplayWindowListener(IDisplayWindowListener listener) {
-//        try {
-//            manager.getClass().getMethod("unregisterDisplayWindowListener", IDisplayWindowListener.class).invoke(manager, listener);
-//        } catch (Exception e) {
-//            Ln.e("Could not unregister display window listener", e);
-//        }
-//    }
 
     @TargetApi(AndroidVersions.API_29_ANDROID_10)
     private Method getGetDisplayImePolicyMethod() throws NoSuchMethodException {
@@ -308,12 +351,6 @@ public final class WindowManager {
         }
     }
 
-    // ============ Android 14+ 截图支持 ============
-
-    private static Class<?> captureArgsClass;
-    private static Class<?> screenCaptureListenerClass;
-    private Method captureDisplayMethod;
-
     /**
      * Android 14+ 截图
      * 调用 IWindowManager.captureDisplay(displayId, captureArgs, listener)
@@ -340,6 +377,99 @@ public final class WindowManager {
         } catch (ReflectiveOperationException e) {
             Ln.e("Could not invoke captureDisplay", e);
             throw new RuntimeException("captureDisplay failed", e);
+        }
+    }
+
+    /**
+     * 当前是否处于锁屏（含无密码的滑动锁屏）。反射不可用时返回 null。
+     */
+    public Boolean isKeyguardLocked() {
+        try {
+            if (isKeyguardLockedMethod == null) {
+                isKeyguardLockedMethod = manager.getClass().getMethod("isKeyguardLocked");
+            }
+            return (boolean) isKeyguardLockedMethod.invoke(manager);
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke isKeyguardLocked", e);
+            return null;
+        }
+    }
+
+    /**
+     * 锁屏是否设了凭证（PIN/密码/图案）。反射不可用时返回 null。
+     */
+    public Boolean isKeyguardSecure(int userId) {
+        try {
+            if (isKeyguardSecureMethod == null) {
+                try {
+                    // API 30+ 带 userId
+                    isKeyguardSecureMethod = manager.getClass().getMethod("isKeyguardSecure", int.class);
+                    isKeyguardSecureMethodVersion = 0;
+                } catch (NoSuchMethodException e) {
+                    isKeyguardSecureMethod = manager.getClass().getMethod("isKeyguardSecure");
+                    isKeyguardSecureMethodVersion = 1;
+                }
+            }
+            if (isKeyguardSecureMethodVersion == 0) {
+                return (boolean) isKeyguardSecureMethod.invoke(manager, userId);
+            }
+            return (boolean) isKeyguardSecureMethod.invoke(manager);
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke isKeyguardSecure", e);
+            return null;
+        }
+    }
+
+    /**
+     * 请求解除锁屏（API 26+）。无凭证锁屏直接解除，有凭证时系统弹出 bouncer。
+     *
+     * @return 反射调用是否成功；不代表已解锁，需另行轮询 isKeyguardLocked
+     */
+    @TargetApi(AndroidVersions.API_26_ANDROID_8_0)
+    public boolean dismissKeyguard() {
+        try {
+            if (dismissKeyguardMethod == null) {
+                Class<?> callbackClass = Class.forName("com.android.internal.policy.IKeyguardDismissCallback");
+                dismissKeyguardMethod = manager.getClass().getMethod("dismissKeyguard", callbackClass, CharSequence.class);
+            }
+            dismissKeyguardMethod.invoke(manager, null, null);
+            return true;
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke dismissKeyguard", e);
+            return false;
+        }
+    }
+
+    private Method getLockNowMethod() throws NoSuchMethodException {
+        if (lockNowMethod == null) {
+            Class<?> cls = manager.getClass();
+            try {
+                // lockNow(Bundle options)
+                lockNowMethod = cls.getMethod("lockNow", android.os.Bundle.class);
+                lockNowMethodVersion = 0;
+            } catch (NoSuchMethodException e) {
+                lockNowMethod = cls.getMethod("lockNow");
+                lockNowMethodVersion = 1;
+            }
+        }
+        return lockNowMethod;
+    }
+
+    /**
+     * 立即上锁（弹出 keyguard）。@return 反射调用是否成功
+     */
+    public boolean lockNow() {
+        try {
+            Method method = getLockNowMethod();
+            if (lockNowMethodVersion == 0) {
+                method.invoke(manager, new android.os.Bundle());
+            } else {
+                method.invoke(manager);
+            }
+            return true;
+        } catch (ReflectiveOperationException e) {
+            Ln.e("Could not invoke lockNow", e);
+            return false;
         }
     }
 }

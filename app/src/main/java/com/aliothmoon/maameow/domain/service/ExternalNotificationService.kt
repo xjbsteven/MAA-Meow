@@ -1,7 +1,12 @@
 package com.aliothmoon.maameow.domain.service
 
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.notification.NotificationSettingsManager
 import com.aliothmoon.maameow.data.notification.provider.NotificationProvider
+import com.aliothmoon.maameow.data.notification.provider.NotificationSendResult
+import com.aliothmoon.maameow.utils.i18n.UiText
+import com.aliothmoon.maameow.utils.i18n.uiTextJoin
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,8 +24,8 @@ class ExternalNotificationService(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val providers = providerList.associateBy(NotificationProvider::id)
-    private val _feedbackMessages = MutableSharedFlow<String>(extraBufferCapacity = 16)
-    val feedbackMessages: SharedFlow<String> = _feedbackMessages.asSharedFlow()
+    private val _feedbackMessages = MutableSharedFlow<UiText>(extraBufferCapacity = 16)
+    val feedbackMessages: SharedFlow<UiText> = _feedbackMessages.asSharedFlow()
 
     fun send(title: String, content: String) {
         scope.launch {
@@ -41,7 +46,7 @@ class ExternalNotificationService(
         }
     }
 
-    fun sendTest(title: String = "测试通知", content: String = "这是一条来自 MaaMeow 的测试通知") {
+    fun sendTest(title: String, content: String) {
         scope.launch {
             dispatchToProviders(title, content, isTest = true)
         }
@@ -52,7 +57,7 @@ class ExternalNotificationService(
 
         if (enabledIds.isEmpty()) {
             if (isTest) {
-                _feedbackMessages.tryEmit("请先启用至少一个通知渠道")
+                _feedbackMessages.tryEmit(uiTextOf(R.string.notification_feedback_no_channel))
             }
             return
         }
@@ -63,16 +68,47 @@ class ExternalNotificationService(
             val provider = providers[id]
             val result = if (provider == null) {
                 Timber.w("未知通知渠道: $id")
-                false
+                null
             } else {
                 runCatching { provider.send(prefixedTitle, content) }
-                    .onFailure { Timber.e(it, "通知渠道 $id 发送失败") }
-                    .getOrDefault(false)
-            }
+                    .getOrElse {
+                        Timber.e(it, "通知渠道 $id 发送异常")
+                        NotificationSendResult.Transient(uiTextOf(R.string.notification_err_network))
+                    }
+            } ?: continue
 
-            if (isTest || !result) {
-                _feedbackMessages.tryEmit("$id ${if (result) "发送成功" else "发送失败"}")
+            when (result) {
+                is NotificationSendResult.Success -> {
+                    if (isTest) {
+                        _feedbackMessages.tryEmit(
+                            uiTextOf(
+                                R.string.notification_feedback_send_success,
+                                id
+                            )
+                        )
+                    }
+                }
+
+                is NotificationSendResult.Failed -> {
+                    Timber.w("通知渠道 %s 发送失败: Failed", id)
+                    emitFailure(id, result.message)
+                }
+
+                is NotificationSendResult.Transient -> {
+                    Timber.w("通知渠道 %s 发送失败: Transient", id)
+                    if (isTest) emitFailure(id, result.message)
+                }
             }
         }
+    }
+
+    private fun emitFailure(id: String, message: UiText) {
+        _feedbackMessages.tryEmit(
+            uiTextJoin(
+                uiTextOf(R.string.notification_feedback_send_failed, id),
+                message,
+                separator = UiText.Dynamic("："),
+            )
+        )
     }
 }

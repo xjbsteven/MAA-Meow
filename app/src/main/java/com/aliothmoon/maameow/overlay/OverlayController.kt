@@ -6,11 +6,12 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.view.ViewGroup
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
-import androidx.compose.runtime.collectAsState
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.setViewTreeLifecycleOwner
 import androidx.lifecycle.setViewTreeViewModelStoreOwner
@@ -22,11 +23,13 @@ import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
 import com.aliothmoon.maameow.overlay.border.BorderOverlayManager
 import com.aliothmoon.maameow.presentation.LocalFloatingWindowContext
-import com.aliothmoon.maameow.schedule.model.CountdownState
+import com.aliothmoon.maameow.presentation.ProvideInputFocusManager
 import com.aliothmoon.maameow.presentation.view.panel.ExpandedControlPanel
+import com.aliothmoon.maameow.schedule.model.CountdownState
 import com.aliothmoon.maameow.service.AccessibilityHelperService
 import com.aliothmoon.maameow.theme.MaaMeowTheme
 import com.aliothmoon.maameow.utils.Misc
+import com.aliothmoon.maameow.utils.UiScale
 import com.petterp.floatingx.FloatingX
 import com.petterp.floatingx.assist.FxDisplayMode
 import com.petterp.floatingx.assist.FxGravity
@@ -57,7 +60,7 @@ class OverlayController(
     companion object {
         private const val MAIN_PANEL_TAG = "MP_TAG"
         private const val FLOAT_BALL_TAG = "FB_TAG"
-        private val ENABLE_LOG = false
+        private const val ENABLE_LOG = false
     }
 
     private val _isLocked = MutableStateFlow(true)
@@ -65,7 +68,6 @@ class OverlayController(
     val isActive: StateFlow<Boolean> = _isActive.asStateFlow()
     private var calculatedPanelLayout: Pair<Int, Int>? = null
     private var orientation = context.resources.configuration.orientation
-
 
     private val _signal = MutableSharedFlow<MaaExecutionState>(extraBufferCapacity = 1)
     val signal: SharedFlow<MaaExecutionState> = _signal.asSharedFlow()
@@ -154,11 +156,18 @@ class OverlayController(
     }
 
     private suspend fun onMaaStateChanged(previous: MaaExecutionState, current: MaaExecutionState) {
+        // 仅在 show() 之后才响应 RUNNING 切换
+        // 前台定时任务不会自动 show：未开控制层时这里直接 return，无悬浮球/音量键
         if (!_isActive.value) return
 
         val wasActive =
-            previous == MaaExecutionState.RUNNING || previous == MaaExecutionState.STARTING || previous == MaaExecutionState.STOPPING
-        val isActive = current == MaaExecutionState.RUNNING || current == MaaExecutionState.STARTING || current == MaaExecutionState.STOPPING
+            previous == MaaExecutionState.RUNNING
+                    || previous == MaaExecutionState.STARTING
+                    || previous == MaaExecutionState.STOPPING
+        val isActive =
+            current == MaaExecutionState.RUNNING
+                    || current == MaaExecutionState.STARTING
+                    || current == MaaExecutionState.STOPPING
 
         when {
             // 进入运行态：隐藏主面板，显示悬浮控件
@@ -213,30 +222,40 @@ class OverlayController(
             }
             setContent {
                 val themeMode by appSettings.themeMode.collectAsStateWithLifecycle()
+                val fontSizeScale by appSettings.fontSizeScale.collectAsStateWithLifecycle()
 
                 MaaMeowTheme(themeMode = themeMode) {
                     val baseDensity = LocalDensity.current
+                    val configuration = LocalConfiguration.current
+                    // 浮窗跟随主界面页面缩放；fontScale 钳制保持历史行为
+                    val effectiveScale = AppSettingsManager.resolveFontSizeScale(
+                        stored = fontSizeScale,
+                        smallestWidthDp = configuration.smallestScreenWidthDp,
+                        fontScale = baseDensity.fontScale,
+                    )
                     CompositionLocalProvider(
                         LocalFloatingWindowContext provides true,
                         LocalDensity provides Density(
-                            density = baseDensity.density,
-                            fontScale = baseDensity.fontScale.coerceIn(0.85f, 1.3f)
+                            density = baseDensity.density * effectiveScale / 100f,
+                            fontScale = UiScale.clampOverlayFontScale(baseDensity.fontScale),
                         )
                     ) {
-                        val isLocked by _isLocked.collectAsStateWithLifecycle()
-                        ExpandedControlPanel(
-                            onClose = ::onCloseControlPanel,
-                            onHome = { Misc.bringAppToFront(context) },
-                            isLocked = isLocked,
-                            onLockToggle = { locked ->
-                                _isLocked.value = locked
-                                if (locked) {
-                                    lockMainPanelPosition()
-                                } else {
-                                    unlockMainPanelPosition()
+                        ProvideInputFocusManager {
+                            val isLocked by _isLocked.collectAsStateWithLifecycle()
+                            ExpandedControlPanel(
+                                onClose = ::onCloseControlPanel,
+                                onHome = { Misc.bringAppToFront(context) },
+                                isLocked = isLocked,
+                                onLockToggle = { locked ->
+                                    _isLocked.value = locked
+                                    if (locked) {
+                                        lockMainPanelPosition()
+                                    } else {
+                                        unlockMainPanelPosition()
+                                    }
                                 }
-                            }
-                        )
+                            )
+                        }
                     }
                 }
             }
@@ -307,6 +326,7 @@ class OverlayController(
                 setEnableKeyBoardAdapt(true)
                 setKeyBackListener(object : IKeyBackListener {
                     override fun onBackPressed(): Boolean {
+                        // 消费返回，避免落到底层 Activity；关闭走面板「隐藏」按钮
                         return true
                     }
                 })
@@ -413,6 +433,10 @@ class OverlayController(
         }
     }
 
+    /**
+     * 首页手动启动控制层后才 _isActive
+     * 定时/LAUNCH_PROFILE 前台静默启动不会走这里，需用户事先 show 过才能在 RUNNING 时出球/边框
+     */
     fun show(mode: OverlayControlMode = OverlayControlMode.ACCESSIBILITY) {
         if (appSettings.runMode.value != RunMode.FOREGROUND) {
             Timber.w("OverlayController: 非前台模式，忽略 show 请求")

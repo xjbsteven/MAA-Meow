@@ -1,12 +1,13 @@
 package com.aliothmoon.maameow.data.model
+
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
-import com.aliothmoon.maameow.data.model.TaskParamProvider
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+
 /**
  * 获取信用及购物配置
  *
@@ -138,13 +139,10 @@ data class MallConfig(
         )
     }
 
-    override fun toTaskParams(): MaaTaskParams = toTaskParams(creditFightEnabled = creditFight)
-
-    fun toTaskParams(
-        creditFightEnabled: Boolean,
-        clientType: String = WakeUpConfig().clientType,
-    ): MaaTaskParams {
-        val mergedBlacklist = mergeFixedBlacklist(clientType)
+    override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
+        val mergedBlacklist = mergeFixedBlacklist(ctx.clientType)
+        // 本任务自身开启，且整条链的前提也成立时才借助战
+        val creditFightEnabled = creditFight && ctx.chainAllowsCreditFight
         val paramsJson = buildJsonObject {
             // 访问好友
             put("visit_friends", visitFriends)
@@ -169,7 +167,7 @@ data class MallConfig(
             put("only_buy_discount", onlyBuyDiscount)
             put("reserve_max_credit", reserveMaxCredit)
         }
-        return MaaTaskParams(MaaTaskType.MALL, paramsJson.toString())
+        return listOf(MaaTaskParams(MaaTaskType.MALL, paramsJson.toString()))
     }
 
     private fun mergeFixedBlacklist(clientType: String): List<String> {

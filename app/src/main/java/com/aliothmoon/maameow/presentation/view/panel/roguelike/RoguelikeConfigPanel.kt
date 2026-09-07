@@ -133,7 +133,8 @@ private fun BasicRoguelikeSettings(
                 val newMode = if (RoguelikeUi.isModeValidForTheme(config.mode, newTheme)) {
                     config.mode
                 } else {
-                    val fallbackName = RoguelikeUi.getModeKeysForTheme(newTheme).firstOrNull() ?: "Exp"
+                    val fallbackName =
+                        RoguelikeUi.getModeKeysForTheme(newTheme).firstOrNull() ?: "Exp"
                     RoguelikeMode.valueOf(fallbackName)
                 }
 
@@ -160,7 +161,8 @@ private fun BasicRoguelikeSettings(
 
                 // 过滤掉新主题不支持的开局奖励
                 val validAwardKeys = RoguelikeUi.getCollectibleAwardKeys(newTheme).toSet()
-                val newCollectibleStartAwards = config.collectibleStartAwards.intersect(validAwardKeys)
+                val newCollectibleStartAwards =
+                    config.collectibleStartAwards.intersect(validAwardKeys)
 
                 onConfigChange(
                     config.copy(
@@ -201,14 +203,16 @@ private fun BasicRoguelikeSettings(
                     val newSquads = RoguelikeUi.getSquadOptionsForTheme(config.theme, newMode)
                     val newSquad =
                         if (newConfig.squad in newSquads) newConfig.squad else RoguelikeUi.DEFAULT_SQUAD
-                    val newCollectibleSquad = if (newConfig.collectibleModeSquad in newSquads) newConfig.collectibleModeSquad else newSquad
-                    newConfig = newConfig.copy(squad = newSquad, collectibleModeSquad = newCollectibleSquad)
+                    val newCollectibleSquad =
+                        if (newConfig.collectibleModeSquad in newSquads) newConfig.collectibleModeSquad else newSquad
+                    newConfig =
+                        newConfig.copy(squad = newSquad, collectibleModeSquad = newCollectibleSquad)
                     onConfigChange(newConfig)
                 }
             )
 
             // 模式说明 - 紧跟在策略按钮组下方
-            val modeDescription = localizedRoguelikeModeDescription(config.mode)
+            val modeDescription = localizedRoguelikeModeDescription(config.mode, config.theme)
             if (modeDescription.isNotEmpty()) {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -248,7 +252,8 @@ private fun BasicRoguelikeSettings(
             onValueChange = { onConfigChange(config.copy(coreChar = it)) },
             theme = config.theme,
             resourceDataManager = resourceDataManager,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            themeTip = localizedRoguelikeThemeTip(config.theme)
         )
     }
 }

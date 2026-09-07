@@ -1,7 +1,6 @@
 package com.aliothmoon.maameow.presentation.components
 
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,31 +22,33 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.Warning
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aliothmoon.maameow.R
@@ -72,8 +74,9 @@ import com.aliothmoon.maameow.data.model.update.UpdateInfo
 import com.aliothmoon.maameow.data.model.update.UpdateProcessState
 import com.aliothmoon.maameow.data.model.update.UpdateSource
 import com.aliothmoon.maameow.presentation.viewmodel.UpdateViewModel
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.utils.Misc
-import dev.jeziellago.compose.markdowntext.MarkdownText
+import com.aliothmoon.maameow.utils.i18n.resolve
 
 /**
  * 更新管理卡片
@@ -93,10 +96,11 @@ fun UpdateCard(
     val updateSource by viewModel.updateSource.collectAsStateWithLifecycle()
     val mirrorChyanCdk by viewModel.mirrorChyanCdk.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    
+
     val resourceUpToDateMessage = stringResource(R.string.update_toast_resource_up_to_date)
     val appUpToDateMessage = stringResource(R.string.update_toast_app_up_to_date)
-    val resourceUpdateCompleteMessage = stringResource(R.string.update_toast_resource_update_complete)
+    val resourceUpdateCompleteMessage =
+        stringResource(R.string.update_toast_resource_update_complete)
     val apkDownloadCompleteMessage = stringResource(R.string.update_toast_apk_download_complete)
     val resourceCheckFailedFormat = stringResource(R.string.update_toast_check_resource_failed)
     val appCheckFailedFormat = stringResource(R.string.update_toast_check_app_failed)
@@ -119,7 +123,8 @@ fun UpdateCard(
             }
 
             is UpdateCheckResult.Error -> {
-                resourceErrorMessage = resourceCheckFailedFormat.format(result.error.message.orEmpty())
+                resourceErrorMessage =
+                    resourceCheckFailedFormat.format(result.error.text.resolve(context))
                 viewModel.dismissResourceCheckResult()
             }
 
@@ -141,7 +146,7 @@ fun UpdateCard(
             }
 
             is UpdateCheckResult.Error -> {
-                appErrorMessage = appCheckFailedFormat.format(result.error.message.orEmpty())
+                appErrorMessage = appCheckFailedFormat.format(result.error.text.resolve(context))
                 viewModel.dismissAppCheckResult()
             }
 
@@ -154,7 +159,8 @@ fun UpdateCard(
     LaunchedEffect(resourceUpdateState) {
         when (val state = resourceUpdateState) {
             is UpdateProcessState.Failed -> {
-                resourceErrorMessage = resourceUpdateFailedFormat.format(state.error.message.orEmpty())
+                resourceErrorMessage =
+                    resourceUpdateFailedFormat.format(state.error.text.resolve(context))
             }
 
             is UpdateProcessState.Success -> {
@@ -173,7 +179,7 @@ fun UpdateCard(
     LaunchedEffect(appUpdateState) {
         when (val state = appUpdateState) {
             is UpdateProcessState.Failed -> {
-                appErrorMessage = state.error.message.orEmpty()
+                appErrorMessage = state.error.text.resolve(context)
             }
 
             is UpdateProcessState.Success -> {
@@ -253,7 +259,8 @@ fun UpdateCard(
     val appIsInstalling = appUpdateState is UpdateProcessState.Installing
     val appIsUpdating = appIsDownloading || appIsInstalling
 
-    val anyUpdating = resIsUpdating || appIsUpdating
+    // 解压、安装阶段不给取消和换源
+    val anyDownloading = resIsDownloading || appIsDownloading
 
     // ==================== UI ====================
 
@@ -320,12 +327,15 @@ fun UpdateCard(
                 }
 
                 // 应用下载进度（动画展开/收起）
-                AnimatedVisibility(
+                MaaAnimatedVisibility(
                     visible = appIsUpdating,
                     enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
                     exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
                 ) {
-                    AppUpdateProgress(appUpdateState)
+                    AppUpdateProgress(
+                        appUpdateState = appUpdateState,
+                        onCancel = { viewModel.cancelAppDownload() },
+                    )
                 }
 
                 // ---- 资源更新行 ----
@@ -366,106 +376,137 @@ fun UpdateCard(
                 }
 
                 // 资源下载/解压进度（动画展开/收起）
-                AnimatedVisibility(
+                MaaAnimatedVisibility(
                     visible = resIsUpdating,
                     enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
                     exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut()
                 ) {
-                    ResourceUpdateProgress(resourceUpdateState)
+                    ResourceUpdateProgress(
+                        resourceUpdateState = resourceUpdateState,
+                        onCancel = { viewModel.cancelResourceDownload() },
+                    )
                 }
             }
 
-            // ========== 更新源选择（非更新中时显示） ==========
-            if (!anyUpdating) {
+            // ========== 更新源选择 ==========
 
-                var showInfoSource by remember { mutableStateOf<UpdateSource?>(null) }
+            var showInfoSource by remember { mutableStateOf<UpdateSource?>(null) }
+            var pendingSwitchSource by remember { mutableStateOf<UpdateSource?>(null) }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = stringResource(R.string.update_card_source_label),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
-                    )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.update_card_source_label),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onTertiaryContainer
+                )
 
-                    UpdateSourceButtonGroup(
-                        selectedSource = updateSource,
-                        onSourceSelected = { viewModel.setUpdateSource(it) },
-                        onInfoClick = { showInfoSource = it }
-                    )
-                }
+                UpdateSourceButtonGroup(
+                    selectedSource = updateSource,
+                    onSourceSelected = { source ->
+                        if (anyDownloading && source != updateSource) {
+                            pendingSwitchSource = source
+                        } else {
+                            viewModel.setUpdateSource(source)
+                        }
+                    },
+                    onInfoClick = { showInfoSource = it }
+                )
+            }
 
-                // 更新源说明弹窗
-                showInfoSource?.let { source ->
-                    val sourceName = stringResource(source.resId)
-                    AdaptiveTaskPromptDialog(
-                        visible = true,
-                        title = stringResource(R.string.update_card_about_title, sourceName),
-                        onConfirm = {
-                            Misc.openUriSafely(
-                                context = context,
-                                uriString = when (source) {
-                                    UpdateSource.GITHUB -> "https://github.com/MaaAssistantArknights/MaaResource"
-                                    UpdateSource.MIRROR_CHYAN -> "https://mirrorchyan.com/zh/projects?rid=MAA&os=android&channel=stable&source=maameow"
-                                }
-                            )
-                            showInfoSource = null
-                        },
-                        onDismissRequest = { showInfoSource = null },
-                        confirmText = stringResource(R.string.update_card_visit_site),
-                        dismissText = stringResource(R.string.common_close),
-                        icon = Icons.Rounded.Info,
-                        landscapeAdaptive = true,
-                        content = {
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                when (source) {
-                                    UpdateSource.GITHUB -> Text(
-                                        text = stringResource(R.string.update_card_github_desc),
+            // 更新源说明弹窗
+            showInfoSource?.let { source ->
+                val sourceName = stringResource(source.resId)
+                AdaptiveTaskPromptDialog(
+                    visible = true,
+                    title = stringResource(R.string.update_card_about_title, sourceName),
+                    onConfirm = {
+                        Misc.openUriSafely(
+                            context = context,
+                            uriString = when (source) {
+                                UpdateSource.GITHUB -> "https://github.com/MaaAssistantArknights/MaaResource"
+                                UpdateSource.MIRROR_CHYAN -> "https://mirrorchyan.com/zh/projects?rid=MAA&os=android&channel=stable&source=maameow"
+                            }
+                        )
+                        showInfoSource = null
+                    },
+                    onDismissRequest = { showInfoSource = null },
+                    confirmText = stringResource(R.string.update_card_visit_site),
+                    dismissText = stringResource(R.string.common_close),
+                    icon = Icons.Rounded.Info,
+                    landscapeAdaptive = true,
+                    content = {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            when (source) {
+                                UpdateSource.GITHUB -> Text(
+                                    text = stringResource(R.string.update_card_github_desc),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Center
+                                )
+
+                                UpdateSource.MIRROR_CHYAN -> {
+                                    val mirrorBrand =
+                                        stringResource(R.string.update_card_mirror_brand)
+                                    val mirrorDesc =
+                                        stringResource(R.string.update_card_mirror_desc)
+                                    val primary = MaterialTheme.colorScheme.primary
+                                    Text(
+                                        text = buildAnnotatedString {
+                                            withStyle(
+                                                SpanStyle(
+                                                    color = primary,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            ) {
+                                                append(mirrorBrand)
+                                            }
+                                            append(" ")
+                                            append(mirrorDesc)
+                                        },
                                         style = MaterialTheme.typography.bodyMedium,
                                         textAlign = TextAlign.Center
                                     )
-
-                                    UpdateSource.MIRROR_CHYAN -> {
-                                        val mirrorBrand = stringResource(R.string.update_card_mirror_brand)
-                                        val mirrorDesc = stringResource(R.string.update_card_mirror_desc)
-                                        val primary = MaterialTheme.colorScheme.primary
-                                        Text(
-                                            text = buildAnnotatedString {
-                                                withStyle(
-                                                    SpanStyle(
-                                                        color = primary,
-                                                        fontWeight = FontWeight.Bold
-                                                    )
-                                                ) {
-                                                    append(mirrorBrand)
-                                                }
-                                                append(" ")
-                                                append(mirrorDesc)
-                                            },
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
                                 }
                             }
                         }
-                    )
-                }
+                    }
+                )
+            }
 
-                // CDK 输入框（仅 Mirror酱 时显示）
-                AnimatedVisibility(visible = updateSource == UpdateSource.MIRROR_CHYAN) {
-                    CdkInputField(
-                        cdk = mirrorChyanCdk,
-                        onCdkChange = { viewModel.setMirrorChyanCdk(it) }
-                    )
-                }
+            // CDK 输入框（仅 Mirror酱 时显示）
+            MaaAnimatedVisibility(visible = updateSource == UpdateSource.MIRROR_CHYAN) {
+                CdkInputField(
+                    cdk = mirrorChyanCdk,
+                    onCdkChange = { viewModel.setMirrorChyanCdk(it) }
+                )
+            }
+
+            // 下载中换源确认弹窗
+            pendingSwitchSource?.let { source ->
+                AdaptiveTaskPromptDialog(
+                    visible = true,
+                    title = stringResource(R.string.update_switch_source_title),
+                    message = stringResource(
+                        R.string.update_switch_source_message,
+                        stringResource(source.resId)
+                    ),
+                    onConfirm = {
+                        viewModel.switchSourceAndRestartDownload(source)
+                        pendingSwitchSource = null
+                    },
+                    onDismissRequest = { pendingSwitchSource = null },
+                    confirmText = stringResource(R.string.common_confirm),
+                    dismissText = stringResource(R.string.common_cancel),
+                    icon = Icons.Rounded.Info,
+                    landscapeAdaptive = true,
+                )
             }
         }
     }
@@ -489,50 +530,107 @@ private fun CdkInputField(
         }
     }
 
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        OutlinedTextField(
-            value = localCdk,
-            onValueChange = { newValue ->
-                localCdk = newValue
-                onCdkChange(newValue)
-            },
-            label = { Text(stringResource(R.string.update_cdk_label)) },
-            placeholder = { Text(stringResource(R.string.update_cdk_placeholder)) },
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            visualTransformation = if (passwordVisible) {
-                VisualTransformation.None
-            } else {
-                PasswordVisualTransformation()
-            },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            trailingIcon = {
-                Row {
-                    if (localCdk.isNotEmpty()) {
-                        IconButton(onClick = {
-                            localCdk = ""
-                            onCdkChange("")
-                        }) {
+    // 填过之后默认收起，输入框尾部的清除键太容易误触；用户手动展开后以其选择为准
+    var userExpanded by rememberSaveable { mutableStateOf<Boolean?>(null) }
+    val expanded = userExpanded ?: cdk.isEmpty()
+    val expandLabel = stringResource(R.string.common_expand)
+    val collapseLabel = stringResource(R.string.common_collapse)
+
+    Column {
+        // 常驻标题行兼折叠开关，对齐 CollapsibleSection
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable(
+                    role = Role.Button,
+                    onClickLabel = if (expanded) collapseLabel else expandLabel,
+                ) {
+                    // 收起时把明文一并藏回去
+                    if (expanded) passwordVisible = false
+                    userExpanded = !expanded
+                }
+                .padding(vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.update_cdk_label),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onTertiaryContainer,
+                modifier = Modifier.weight(1f),
+            )
+            // 收起时才提示填没填，展开后输入框自己会说
+            if (!expanded) {
+                Text(
+                    text = stringResource(
+                        if (cdk.isEmpty()) R.string.update_cdk_unset else R.string.update_cdk_saved
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                imageVector = if (expanded) {
+                    Icons.Rounded.KeyboardArrowUp
+                } else {
+                    Icons.Rounded.KeyboardArrowDown
+                },
+                contentDescription = if (expanded) collapseLabel else expandLabel,
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        MaaAnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(expandFrom = Alignment.Top) + fadeIn(),
+            exit = shrinkVertically(shrinkTowards = Alignment.Top) + fadeOut(),
+        ) {
+            OutlinedTextField(
+                value = localCdk,
+                onValueChange = { newValue ->
+                    localCdk = newValue
+                    onCdkChange(newValue)
+                },
+                // 标题在上面那行，这里再挂 label 就重了
+                placeholder = { Text(stringResource(R.string.update_cdk_placeholder)) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 4.dp),
+                singleLine = true,
+                visualTransformation = if (passwordVisible) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                trailingIcon = {
+                    Row {
+                        if (localCdk.isNotEmpty()) {
+                            IconButton(onClick = {
+                                localCdk = ""
+                                onCdkChange("")
+                            }) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = stringResource(R.string.update_cdk_clear_cd)
+                                )
+                            }
+                        }
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
                             Icon(
-                                imageVector = Icons.Default.Clear,
-                                contentDescription = stringResource(R.string.update_cdk_clear_cd)
+                                imageVector = if (passwordVisible) Icons.Outlined.Lock else Icons.Filled.Lock,
+                                contentDescription = if (passwordVisible)
+                                    stringResource(R.string.update_cdk_hide_cd)
+                                else
+                                    stringResource(R.string.update_cdk_show_cd)
                             )
                         }
                     }
-                    IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                        Icon(
-                            imageVector = if (passwordVisible) Icons.Outlined.Lock else Icons.Filled.Lock,
-                            contentDescription = if (passwordVisible)
-                                stringResource(R.string.update_cdk_hide_cd)
-                            else
-                                stringResource(R.string.update_cdk_show_cd)
-                        )
-                    }
                 }
-            }
-        )
-
-        Spacer(modifier = Modifier.height(4.dp))
+            )
+        }
 
         TextButton(
             onClick = { Misc.openUriSafely(context, "https://mirrorchyan.com/") }
@@ -547,24 +645,33 @@ private fun CdkInputField(
 
 
 @Composable
-private fun AppUpdateProgress(appUpdateState: UpdateProcessState) {
+private fun AppUpdateProgress(
+    appUpdateState: UpdateProcessState,
+    onCancel: () -> Unit
+) {
     when (appUpdateState) {
         is UpdateProcessState.Downloading -> {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = stringResource(R.string.update_progress_app_downloading, appUpdateState.progress.toString()),
+                        text = stringResource(
+                            R.string.update_progress_app_downloading,
+                            appUpdateState.progress.toString()
+                        ),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = appUpdateState.speed,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
                     )
+                    CancelDownloadButton(onCancel = onCancel)
                 }
                 LinearProgressIndicator(
                     progress = { appUpdateState.progress / 100f },
@@ -597,27 +704,57 @@ private fun AppUpdateProgress(appUpdateState: UpdateProcessState) {
 }
 
 /**
+ * 进度行尾部的取消按钮
+ */
+@Composable
+private fun CancelDownloadButton(onCancel: () -> Unit) {
+    // 不压最小触控尺寸的话 IconButton 会把进度行顶到 48dp
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+        IconButton(
+            onClick = onCancel,
+            modifier = Modifier.size(24.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Close,
+                contentDescription = stringResource(R.string.update_cancel_download_cd),
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+            )
+        }
+    }
+}
+
+/**
  * 资源更新进度显示
  */
 @Composable
-private fun ResourceUpdateProgress(resourceUpdateState: UpdateProcessState) {
+private fun ResourceUpdateProgress(
+    resourceUpdateState: UpdateProcessState,
+    onCancel: () -> Unit
+) {
     when (resourceUpdateState) {
         is UpdateProcessState.Downloading -> {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = stringResource(R.string.update_progress_resource_downloading, resourceUpdateState.progress.toString()),
+                        text = stringResource(
+                            R.string.update_progress_resource_downloading,
+                            resourceUpdateState.progress.toString()
+                        ),
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = resourceUpdateState.speed,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
                     )
+                    CancelDownloadButton(onCancel = onCancel)
                 }
                 LinearProgressIndicator(
                     progress = { resourceUpdateState.progress / 100f },
@@ -634,7 +771,10 @@ private fun ResourceUpdateProgress(resourceUpdateState: UpdateProcessState) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = stringResource(R.string.update_progress_resource_extracting, resourceUpdateState.progress.toString()),
+                        text = stringResource(
+                            R.string.update_progress_resource_extracting,
+                            resourceUpdateState.progress.toString()
+                        ),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onTertiaryContainer
                     )
@@ -695,7 +835,10 @@ private fun UpdateSourceButtonGroup(
                 )
                 Icon(
                     imageVector = Icons.Outlined.Info,
-                    contentDescription = stringResource(R.string.update_card_about_source_cd, sourceName),
+                    contentDescription = stringResource(
+                        R.string.update_card_about_source_cd,
+                        sourceName
+                    ),
                     modifier = Modifier
                         .padding(start = 2.dp)
                         .size(16.dp)
@@ -738,7 +881,7 @@ private fun AppUpdateConfirmDialog(
                 )
                 if (!updateInfo.releaseNote.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    MarkdownText(
+                    MaaMarkdownText(
                         markdown = updateInfo.releaseNote,
                         modifier = Modifier.fillMaxWidth(),
                         style = MaterialTheme.typography.bodyMedium

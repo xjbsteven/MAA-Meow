@@ -1,6 +1,7 @@
 package com.aliothmoon.maameow.data.model.update
 
+import com.aliothmoon.maameow.utils.i18n.UiText
+
 interface Message {
-    val message: String?
-        get() = "未知错误"
+    val text: UiText
 }

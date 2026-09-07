@@ -1,19 +1,14 @@
 package com.aliothmoon.maameow.domain.usecase
 
 import com.aliothmoon.maameow.data.model.TaskChainNode
-import com.aliothmoon.maameow.data.preferences.AppSettingsManager
-import com.aliothmoon.maameow.domain.models.RunMode
-import com.aliothmoon.maameow.domain.service.AppAliveChecker
-import com.aliothmoon.maameow.domain.service.AchievementReporter
-import com.aliothmoon.maameow.remote.AppAliveStatus
-import timber.log.Timber
+import com.aliothmoon.maameow.utils.i18n.UiText
 
+/**
+ * 主任务链的启动决策：链分析([AnalyzeTaskChainUseCase]) + 游戏就绪性闸门([CheckGameReadinessUseCase])。
+ */
 class PrepareTaskStartUseCase(
     private val analyzeTaskChainUseCase: AnalyzeTaskChainUseCase,
-    private val appAliveChecker: AppAliveChecker,
-    private val appSettings: AppSettingsManager,
-    private val achievementReporter: AchievementReporter,
-    private val isPackageInstalled: (String) -> Boolean = { true },
+    private val checkGameReadiness: CheckGameReadinessUseCase,
 ) {
     suspend operator fun invoke(
         chain: List<TaskChainNode>,
@@ -25,87 +20,23 @@ class PrepareTaskStartUseCase(
                 return TaskStartDecision.Blocked(
                     reason = analyzeResult.reason.toDecisionReason(),
                     clientTypes = analyzeResult.clientTypes,
+                    details = analyzeResult.logs.map { it.first },
                 )
             }
         }
 
-        // 检查游戏安装包是否存在
-        val packageName = plan.gamePackageName
-        if (packageName != null
-            && !isPackageInstalled(packageName)
-            && !context.acknowledgements.contains(TaskStartAcknowledgement.GAME_NOT_INSTALLED)
-        ) {
-            return when (context.mode) {
-                TaskStartMode.MANUAL -> TaskStartDecision.RequiresConfirmation(
-                    reason = TaskStartDecisionReason.GAME_NOT_INSTALLED,
-                    acknowledgement = TaskStartAcknowledgement.GAME_NOT_INSTALLED,
-                )
-                TaskStartMode.SCHEDULED -> TaskStartDecision.Blocked(
-                    reason = TaskStartDecisionReason.GAME_NOT_INSTALLED,
-                )
-            }
-        }
+        return when (val readiness =
+            checkGameReadiness(plan.clientType, plan.launchesGame, context)) {
+            is GameReadiness.Ready ->
+                TaskStartDecision.Ready(plan.copy(gameAliveBeforeStart = readiness.gameAliveBeforeStart))
 
-        val runMode = appSettings.runMode.value
-        if (packageName == null) {
-            Timber.w(
-                "PrepareTaskStart: cannot resolve package name for clientType=%s",
-                plan.clientType
-            )
-            return TaskStartDecision.Ready(plan)
-        }
+            is GameReadiness.RequiresConfirmation ->
+                TaskStartDecision.RequiresConfirmation(readiness.acknowledgement)
 
-        val aliveStatus = appAliveChecker.isAppAlive(packageName)
-        if (plan.launchesGame ||
-            runMode == RunMode.FOREGROUND ||
-            context.acknowledgements.contains(TaskStartAcknowledgement.GAME_NOT_RUNNING_WITHOUT_WAKE_UP)
-        ) {
-            return TaskStartDecision.Ready(
-                plan.copy(gameAliveBeforeStart = aliveStatus == AppAliveStatus.ALIVE)
-            )
-        }
-
-        return when (aliveStatus) {
-            AppAliveStatus.DEAD -> {
-                achievementReporter.reportTaskStartBlocked(
-                    TaskStartDecisionReason.GAME_NOT_RUNNING_WITHOUT_WAKE_UP.name
-                )
-                when (context.mode) {
-                    TaskStartMode.MANUAL -> {
-                        TaskStartDecision.RequiresConfirmation(
-                            reason = TaskStartDecisionReason.GAME_NOT_RUNNING_WITHOUT_WAKE_UP,
-                            acknowledgement = TaskStartAcknowledgement.GAME_NOT_RUNNING_WITHOUT_WAKE_UP,
-                        )
-                    }
-
-                    TaskStartMode.SCHEDULED -> {
-                        TaskStartDecision.Blocked(
-                            reason = TaskStartDecisionReason.GAME_NOT_RUNNING_WITHOUT_WAKE_UP,
-                        )
-                    }
-                }
-            }
-
-            AppAliveStatus.UNKNOWN -> {
-                Timber.w("PrepareTaskStart: unable to determine whether %s is alive", packageName)
-                TaskStartDecision.Ready(plan)
-            }
-
-            else -> {
-                // 游戏进程存在，后台模式下进一步确认游戏是否跑在目标 VD 上
-                if (runMode == RunMode.BACKGROUND) {
-                    val onVd = appAliveChecker.isAppOnBackgroundDisplay(packageName)
-                    if (onVd == false) {
-                        return TaskStartDecision.Blocked(
-                            reason = TaskStartDecisionReason.GAME_NOT_ON_BACKGROUND_DISPLAY,
-                        )
-                    }
-                }
-                TaskStartDecision.Ready(plan)
-            }
+            is GameReadiness.Blocked ->
+                TaskStartDecision.Blocked(readiness.reason)
         }
     }
-
 }
 
 data class TaskStartContext(
@@ -140,14 +71,14 @@ sealed interface TaskStartDecision {
     data class Ready(val plan: TaskChainPlan) : TaskStartDecision
 
     data class RequiresConfirmation(
-        val reason: TaskStartDecisionReason,
         val acknowledgement: TaskStartAcknowledgement,
-        val clientTypes: List<String> = emptyList(),
     ) : TaskStartDecision
 
     data class Blocked(
         val reason: TaskStartDecisionReason,
         val clientTypes: List<String> = emptyList(),
+        /** 拦截的具体原因明细，附在拦截文案之后（如库存保持逐条计划为何被跳过） */
+        val details: List<UiText> = emptyList(),
     ) : TaskStartDecision
 }
 

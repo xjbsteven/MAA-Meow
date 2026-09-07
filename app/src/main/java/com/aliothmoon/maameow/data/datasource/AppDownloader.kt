@@ -1,9 +1,16 @@
 package com.aliothmoon.maameow.data.datasource
 
 import android.content.Context
+import com.aliothmoon.maameow.BuildConfig
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.api.HttpClientHelper
-import com.aliothmoon.maameow.data.api.await
+import com.aliothmoon.maameow.data.api.useCancellable
+import com.aliothmoon.maameow.utils.i18n.LocalizedException
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import okhttp3.Request
 import timber.log.Timber
@@ -90,79 +97,73 @@ class AppDownloader(
     fun cleanOldApks(keepVersion: String) {
         val keepName = apkFileName(keepVersion)
         context.cacheDir.listFiles()?.filter {
-                it.name.startsWith("MaaMeow-") && (it.name.endsWith(".apk") || it.name.endsWith(
-                    ".apk.dl"
-                ))
-            }?.filter { it.name != keepName }?.forEach { it.delete() }
+            it.name.startsWith("MaaMeow-") && (it.name.endsWith(".apk") || it.name.endsWith(
+                ".apk.dl"
+            ))
+        }?.filter { it.name != keepName }?.forEach { it.delete() }
+    }
+
+
+    fun cleanInstalledApks() {
+        val current = BuildConfig.VERSION_NAME
+        context.cacheDir.listFiles()
+            ?.filter {
+                if (!it.name.startsWith("MaaMeow-") || !it.name.endsWith(".apk")) {
+                    return@filter false
+                }
+                val version = it.name.removePrefix("MaaMeow-").removeSuffix(".apk")
+                compareVersions(version, current) <= 0
+            }
+            ?.forEach { it.delete() }
     }
 
     suspend fun downloadToTempFile(
         url: String, version: String, onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
+        val apkFile = File(context.cacheDir, apkFileName(version))
+        val dlFile = File(context.cacheDir, "${apkFileName(version)}.dl")
         return try {
             val request = Request.Builder().url(url)
                 .header("Accept-Encoding", "identity")
                 .build()
-            val response = httpClient.rawClient().newCall(request).await()
 
-            if (!response.isSuccessful) {
-                return Result.failure(Exception("服务器返回错误 (HTTP ${response.code})"))
-            }
-
-            val body = response.body
-            val total = body.contentLength().takeIf { it > 0 } ?: 0L
-            val apkFile = File(context.cacheDir, apkFileName(version))
-            val dlFile = File(context.cacheDir, "${apkFileName(version)}.dl")
-
-            dlFile.delete()
-
-            withContext(Dispatchers.IO) {
-                val bfz = 4 * 1024 * 1024
-                BufferedOutputStream(FileOutputStream(dlFile), bfz).use { output ->
-                    val buffer = ByteArray(bfz)
-                    var downloaded = 0L
-                    var lastUpdateTime = System.currentTimeMillis()
-                    var lastDownloaded = 0L
-
-                    body.byteStream().use { input ->
-                        var read: Int
-                        while (input.read(buffer).also { read = it } != -1) {
-                            output.write(buffer, 0, read)
-                            downloaded += read
-
-                            val now = System.currentTimeMillis()
-                            if (now - lastUpdateTime >= 300) {
-                                val speed = if (now > lastUpdateTime) {
-                                    (downloaded - lastDownloaded) * 1000 / (now - lastUpdateTime)
-                                } else 0L
-
-                                val progress =
-                                    if (total > 0) (downloaded * 100 / total).toInt() else 0
-
-                                onProgress(
-                                    DownloadProgress(
-                                        progress = progress,
-                                        speed = formatSpeed(speed),
-                                        downloaded = downloaded,
-                                        total = total
-                                    )
-                                )
-
-                                lastUpdateTime = now
-                                lastDownloaded = downloaded
-                            }
-                        }
-                    }
+            httpClient.rawClient().newCall(request).useCancellable { response ->
+                if (!response.isSuccessful) {
+                    response.close()
+                    return@useCancellable Result.failure(
+                        LocalizedException(
+                            uiTextOf(R.string.update_error_http_status, response.code)
+                        )
+                    )
                 }
 
-                apkFile.delete()
-                dlFile.renameTo(apkFile)
-            }
+                val body = response.body
+                val total = body.contentLength().takeIf { it > 0 } ?: 0L
 
-            Result.success(apkFile)
+                dlFile.delete()
+
+                withContext(Dispatchers.IO) {
+                    val bfz = 4 * 1024 * 1024
+                    BufferedOutputStream(FileOutputStream(dlFile), bfz).use { output ->
+                        body.byteStream().use { input ->
+                            input.copyWithProgress(output, total, bfz, onProgress)
+                        }
+                    }
+
+                    apkFile.delete()
+                    dlFile.renameTo(apkFile)
+                }
+
+                Result.success(apkFile)
+            }
+        } catch (e: CancellationException) {
+            dlFile.delete()
+            throw e
         } catch (e: Exception) {
+            // 断连抛的 IOException 不是网络错误
+            currentCoroutineContext().ensureActive()
             Timber.e(e, "下载 APK 失败")
-            Result.failure(Exception(formatDownloadError(e), e))
+            Result.failure(LocalizedException(formatDownloadError(e), e))
         }
     }
 

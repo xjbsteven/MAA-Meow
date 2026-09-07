@@ -1,9 +1,8 @@
 package com.aliothmoon.maameow.presentation.view.panel
 
+import android.widget.Toast
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -21,30 +20,34 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.aliothmoon.maameow.R
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.domain.models.RunMode
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.state.MaaExecutionState
 import com.aliothmoon.maameow.presentation.LocalFloatingWindowContext
+import com.aliothmoon.maameow.presentation.LocalInputFocusManager
 import com.aliothmoon.maameow.presentation.components.AdaptiveTaskPromptDialog
 import com.aliothmoon.maameow.presentation.components.ResourceLoadingOverlay
+import com.aliothmoon.maameow.presentation.components.clearFocusOnBlankTap
+import com.aliothmoon.maameow.presentation.state.UiEffect
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogType.ERROR
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogType.SUCCESS
 import com.aliothmoon.maameow.presentation.viewmodel.CopilotViewModel
 import com.aliothmoon.maameow.presentation.viewmodel.ExpandedControlPanelViewModel
 import com.aliothmoon.maameow.presentation.viewmodel.ToolboxViewModel
 import com.aliothmoon.maameow.utils.i18n.asString
+import com.aliothmoon.maameow.utils.i18n.resolve
 import org.koin.compose.koinInject
 
 
@@ -59,7 +62,7 @@ fun ExpandedControlPanel(
     copilotViewModel: CopilotViewModel = viewModel(),
     toolboxViewModel: ToolboxViewModel = koinInject(),
     service: MaaCompositionService = koinInject(),
-    appSettings: AppSettingsManager = koinInject()
+    appSettings: AppSettingsManager = koinInject(),
 ) {
     val uiState by viewModel.state.collectAsStateWithLifecycle()
     val maaState by service.state.collectAsStateWithLifecycle()
@@ -67,9 +70,11 @@ fun ExpandedControlPanel(
 
     val nodes by viewModel.chainState.chain.collectAsStateWithLifecycle()
     val profiles by viewModel.chainState.profiles.collectAsStateWithLifecycle()
-    val activeProfileId by viewModel.chainState.activeProfileId.collectAsStateWithLifecycle()
+    val profileId by viewModel.chainState.profileId.collectAsStateWithLifecycle()
     val selectedNode = nodes.find { it.id == uiState.selectedNodeId }
-    val focusManager = LocalFocusManager.current
+    val clientType = remember(nodes) { viewModel.chainState.clientType }
+    val inputFocusManager = LocalInputFocusManager.current
+    val context = LocalContext.current
 
     val pagerState = rememberPagerState(
         initialPage = uiState.currentTab.ordinal,
@@ -91,7 +96,23 @@ fun ExpandedControlPanel(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    LaunchedEffect(viewModel) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                is UiEffect.Toast -> Toast.makeText(
+                    context,
+                    effect.message.resolve(context),
+                    if (effect.long) Toast.LENGTH_LONG else Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .clearFocusOnBlankTap()
+    ) {
         Card(
             modifier = Modifier
                 .fillMaxSize()
@@ -129,54 +150,39 @@ fun ExpandedControlPanel(
                 ) { page ->
                     when (page) {
                         0 -> { // PanelTab.ONE_KEY_TASKS
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                            ) {
-                                // 左侧任务列表
-                                TaskListPanel(
-                                    nodes = nodes,
-                                    selectedNodeId = uiState.selectedNodeId,
-                                    isEditMode = uiState.isEditMode,
-                                    isAddingTask = uiState.isAddingTask,
-                                    isProfileMode = uiState.isProfileMode,
-                                    onNodeEnabledChange = viewModel::onNodeEnabledChange,
-                                    onNodeSelected = viewModel::onNodeSelected,
-                                    onNodeMove = viewModel::onNodeMove,
-                                    onToggleEditMode = viewModel::onToggleEditMode,
-                                    onToggleAddingTask = viewModel::onToggleAddingTask,
-                                    onToggleProfileMode = viewModel::onToggleProfileMode,
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                )
-
-                                // 右侧配置区域
-                                TaskConfigPanel(
-                                    selectedNode = selectedNode,
-                                    isEditMode = uiState.isEditMode,
-                                    isAddingTask = uiState.isAddingTask,
-                                    isProfileMode = uiState.isProfileMode,
-                                    profiles = profiles,
-                                    activeProfileId = activeProfileId,
-                                    onConfigChange = { config ->
-                                        val nodeId = selectedNode?.id ?: return@TaskConfigPanel
-                                        viewModel.onNodeConfigChange(nodeId, config)
-                                    },
-                                    onAddNode = viewModel::onAddNode,
-                                    onRemoveNode = viewModel::onRemoveNode,
-                                    onDuplicateNode = viewModel::onDuplicateNode,
-                                    onRenameNode = viewModel::onRenameNode,
-                                    onSwitchProfile = viewModel::onSwitchProfile,
-                                    onRenameProfile = viewModel::onRenameProfile,
-                                    onDuplicateProfile = viewModel::onDuplicateProfile,
-                                    onDeleteProfile = viewModel::onDeleteProfile,
-                                    onCreateProfile = viewModel::onCreateProfile,
-                                    onReorderProfile = viewModel::onReorderProfile,
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .fillMaxHeight()
-                                )
-                            }
+                            TaskListDetailLayout(
+                                nodes = nodes,
+                                selectedNode = selectedNode,
+                                selectedNodeId = uiState.selectedNodeId,
+                                isEditMode = uiState.isEditMode,
+                                isAddingTask = uiState.isAddingTask,
+                                isProfileMode = uiState.isProfileMode,
+                                profiles = profiles,
+                                activeProfileId = profileId,
+                                clientType = clientType,
+                                onNodeEnabledChange = viewModel::onNodeEnabledChange,
+                                onNodeSelected = viewModel::onNodeSelected,
+                                onNodeMove = viewModel::onNodeMove,
+                                onToggleEditMode = viewModel::onToggleEditMode,
+                                onToggleAddingTask = viewModel::onToggleAddingTask,
+                                onToggleProfileMode = viewModel::onToggleProfileMode,
+                                onConfigChange = { config ->
+                                    selectedNode?.id?.let {
+                                        viewModel.onNodeConfigChange(it, config)
+                                    }
+                                },
+                                onAddNode = viewModel::onAddNode,
+                                onRemoveNode = viewModel::onRemoveNode,
+                                onDuplicateNode = viewModel::onDuplicateNode,
+                                onRenameNode = viewModel::onRenameNode,
+                                onSwitchProfile = viewModel::onSwitchProfile,
+                                onRenameProfile = viewModel::onRenameProfile,
+                                onDuplicateProfile = viewModel::onDuplicateProfile,
+                                onDeleteProfile = viewModel::onDeleteProfile,
+                                onCreateProfile = viewModel::onCreateProfile,
+                                onReorderProfile = viewModel::onReorderProfile,
+                                modifier = Modifier.fillMaxSize(),
+                            )
                         }
 
                         1 -> { // PanelTab.AUTO_BATTLE
@@ -196,7 +202,6 @@ fun ExpandedControlPanel(
                             LogPanel(
                                 logs = runtimeLogs,
                                 onClearLogs = { viewModel.onClearLogs() },
-                                onClose = { viewModel.onTabChange(PanelTab.TASKS) }
                             )
                         }
                     }
@@ -211,7 +216,7 @@ fun ExpandedControlPanel(
                     BottomButtons(
                         onClose = { onClose() },
                         onStart = {
-                            focusManager.clearFocus()
+                            inputFocusManager.clear()
                             when (uiState.currentTab) {
                                 PanelTab.AUTO_BATTLE -> copilotViewModel.onStart()
                                 PanelTab.TOOLS -> toolboxViewModel.onStart()

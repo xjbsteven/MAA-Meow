@@ -6,43 +6,53 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.RemoteService
-import com.aliothmoon.maameow.constant.Packages
 import com.aliothmoon.maameow.data.config.MaaPathConfig
 import com.aliothmoon.maameow.data.model.LogItem
 import com.aliothmoon.maameow.data.model.TaskParamProvider
 import com.aliothmoon.maameow.data.model.TaskTypeInfo
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.data.preferences.TaskChainState
+import com.aliothmoon.maameow.domain.launch.LaunchPipeline
+import com.aliothmoon.maameow.domain.launch.LaunchRequest
+import com.aliothmoon.maameow.domain.launch.LaunchSession
+import com.aliothmoon.maameow.domain.launch.LaunchUserEvent
+import com.aliothmoon.maameow.domain.launch.toCountdownState
+import com.aliothmoon.maameow.domain.service.AchievementReporter
+import com.aliothmoon.maameow.domain.service.GameFpsWatcher
+import com.aliothmoon.maameow.domain.service.GameMuteCoordinator
 import com.aliothmoon.maameow.domain.service.MaaCompositionService
 import com.aliothmoon.maameow.domain.service.MaaSessionLogger
-import com.aliothmoon.maameow.domain.service.AchievementReporter
-import com.aliothmoon.maameow.domain.state.MaaExecutionState
+import com.aliothmoon.maameow.domain.service.TaskEndRegistry
 import com.aliothmoon.maameow.domain.usecase.PrepareTaskStartUseCase
-import com.aliothmoon.maameow.domain.usecase.TaskStartAcknowledgement
 import com.aliothmoon.maameow.domain.usecase.TaskStartContext
 import com.aliothmoon.maameow.domain.usecase.TaskStartDecision
 import com.aliothmoon.maameow.domain.usecase.TaskStartMode
 import com.aliothmoon.maameow.manager.RemoteServiceManager
-import com.aliothmoon.maameow.overlay.screensaver.HardwareScreenOffManager
 import com.aliothmoon.maameow.presentation.state.BackgroundTaskState
 import com.aliothmoon.maameow.presentation.state.PreviewTouchMarker
+import com.aliothmoon.maameow.presentation.state.UiEffect
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogConfirmAction
 import com.aliothmoon.maameow.presentation.view.panel.PanelDialogUiState
 import com.aliothmoon.maameow.presentation.view.panel.PanelTab
-import com.aliothmoon.maameow.schedule.data.ScheduleStrategyRepository
-import com.aliothmoon.maameow.schedule.model.ScheduledExecutionRequest
-import com.aliothmoon.maameow.schedule.service.ScheduleTriggerLogger
-import com.aliothmoon.maameow.schedule.service.ScheduledLaunchCoordinator
+import com.aliothmoon.maameow.schedule.model.CountdownState
 import com.aliothmoon.maameow.utils.i18n.UiText
 import com.aliothmoon.maameow.utils.i18n.resolve
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import timber.log.Timber
@@ -55,22 +65,43 @@ class BackgroundTaskViewModel(
     private val compositionService: MaaCompositionService,
     private val sessionLogger: MaaSessionLogger,
     private val appSettingsManager: AppSettingsManager,
-    private val hardwareScreenOffManager: HardwareScreenOffManager,
     private val pathConfig: MaaPathConfig,
     private val achievementReporter: AchievementReporter,
-    scheduleRepository: ScheduleStrategyRepository,
-    triggerLogger: ScheduleTriggerLogger,
+    private val gameMuteCoordinator: GameMuteCoordinator,
+    gameFpsWatcher: GameFpsWatcher,
+    private val launchPipeline: LaunchPipeline,
+    private val taskEndRegistry: TaskEndRegistry,
     private val application: Context,
 ) : ViewModel() {
 
-    val coordinator = ScheduledLaunchCoordinator(
-        scope = viewModelScope,
-        scheduleRepository = scheduleRepository,
-        compositionService = compositionService,
-        appSettingsManager = appSettingsManager,
-        chainState = chainState,
-        triggerLogger = triggerLogger,
-    )
+    val launchSession: StateFlow<LaunchSession> = launchPipeline.session
+    val launchEffects = launchPipeline.effects
+    val countdownState: StateFlow<CountdownState> = launchPipeline.session
+        .map { it.toCountdownState() }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, CountdownState.Idle)
+
+    /**
+     * 导航用：仅 [LaunchSession.InFlight.presentUi] 为 true（后台 Dialog 倒计时）时置位
+     * 前台无倒计时不导航，避免强行拉回主 Tab
+     */
+    val pendingNavigateRequestId: StateFlow<String?> = launchPipeline.session
+        .map { session ->
+            when (session) {
+                is LaunchSession.InFlight -> {
+                    if (!session.presentUi) null
+                    else when (session.phase) {
+                        is LaunchSession.Phase.Counting,
+                        LaunchSession.Phase.Preparing,
+                        LaunchSession.Phase.Starting -> session.request.requestId
+
+                        else -> null
+                    }
+                }
+
+                LaunchSession.Idle -> null
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val _state = MutableStateFlow(BackgroundTaskState())
     val state: StateFlow<BackgroundTaskState> = _state.asStateFlow()
@@ -78,12 +109,17 @@ class BackgroundTaskViewModel(
 
     private val surfaceRef = AtomicReference<Surface>()
 
-    private val _isGameMuted = MutableStateFlow(false)
-    val isGameMuted: StateFlow<Boolean> = _isGameMuted.asStateFlow()
+    val isGameMuted: StateFlow<Boolean> = gameMuteCoordinator.isMuted
+
+    // 后台模式游戏实时帧率，null = 未监控
+    val gameFps: StateFlow<Float?> = gameFpsWatcher.fps
 
     // 调试截图结果（已本地化的提示文案），供 UI 以 Toast 展示
     private val _screenshotMessage = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val screenshotMessage: SharedFlow<String> = _screenshotMessage.asSharedFlow()
+
+    private val _effects = Channel<UiEffect>(Channel.BUFFERED)
+    val effects: Flow<UiEffect> = _effects.receiveAsFlow()
 
     private val touchPreviewController = TouchPreviewController(viewModelScope)
     val markers: StateFlow<List<PreviewTouchMarker>> = touchPreviewController.markers
@@ -91,7 +127,6 @@ class BackgroundTaskViewModel(
 
     private data class PendingStart(
         val context: TaskStartContext,
-        val request: ScheduledExecutionRequest? = null,
     )
 
     init {
@@ -99,6 +134,30 @@ class BackgroundTaskViewModel(
         observeServiceState()
         observeTaskEnd()
         observeTouchPreviewToggle()
+        observeDefaultTaskSelection()
+    }
+
+    /**
+     * 首次进入 / 选中失效时默认打开任务链第一项，避免右侧一直停在空占位。
+     * 新增任务、配置管理模式下不自动改写选中。
+     */
+    private fun observeDefaultTaskSelection() {
+        viewModelScope.launch {
+            combine(chainState.chain, _state) { nodes, ui ->
+                resolveTaskPanelSelectedNodeId(
+                    nodes = nodes,
+                    selectedNodeId = ui.selectedNodeId,
+                    isAddingTask = ui.isAddingTask,
+                    isProfileMode = ui.isProfileMode,
+                )
+            }
+                .distinctUntilChanged()
+                .collect { resolved ->
+                    if (_state.value.selectedNodeId != resolved) {
+                        _state.update { it.copy(selectedNodeId = resolved) }
+                    }
+                }
+        }
     }
 
     private fun observeTouchPreviewToggle() {
@@ -140,19 +199,15 @@ class BackgroundTaskViewModel(
 
     private fun observeTaskEnd() {
         viewModelScope.launch {
-            var prev = compositionService.state.value
-            compositionService.state.collect { current ->
-                // 仅在任务自然结束（RUNNING → IDLE/ERROR）时关闭游戏；
-                // 手动停止走 RUNNING → STOPPING → IDLE，prev 为 STOPPING 不会匹配，
-                // 这是预期行为：手动停止说明用户可能还要继续操作，不应自动关闭游戏。
-                if (prev == MaaExecutionState.RUNNING
-                    && (current == MaaExecutionState.IDLE || current == MaaExecutionState.ERROR)
+            taskEndRegistry.taskEnded.collect { reason ->
+                // 仅自然结束关游戏
+                if (reason == TaskEndRegistry.Reason.NATURAL
                     && appSettingsManager.closeAppOnTaskEnd.value
                 ) {
-                    Timber.i("Task ended (%s), auto closing app", current)
+                    Timber.i("Task ended naturally, auto closing app")
+                    _effects.send(UiEffect.toast(R.string.bg_toast_auto_closed_on_end))
                     compositionService.stopVirtualDisplay()
                 }
-                prev = current
             }
         }
     }
@@ -160,33 +215,27 @@ class BackgroundTaskViewModel(
 
     // ==================== Scheduled Launch ====================
 
-    fun onScheduledLaunch(request: ScheduledExecutionRequest) {
-        coordinator.onLaunch(request)
+    fun onExternalLaunch(request: LaunchRequest) {
+        launchPipeline.execute(request)
     }
 
     fun onScheduledCountdownCancel() {
-        coordinator.onCancel()
+        launchPipeline.submit(LaunchUserEvent.Cancel)
     }
 
     fun onScheduledStartNow() {
-        coordinator.onStartNow()
+        launchPipeline.submit(LaunchUserEvent.StartNow)
     }
 
-    fun onScheduledExecutionPageReady(requestId: String) {
-        coordinator.onPageReady(requestId) { request ->
-            _state.update {
-                it.copy(
-                    current = PanelTab.TASKS,
-                    selectedNodeId = null,
-                    isAddingTask = false,
-                    isEditMode = false,
-                    isProfileMode = false,
-                )
-            }
-            startTasksInternal(
-                request = request,
-                context = TaskStartContext(mode = TaskStartMode.SCHEDULED),
-            )?.resolve(application)
+    fun onNavigateForScheduledLaunch() {
+        _state.update {
+            it.copy(
+                current = PanelTab.TASKS,
+                selectedNodeId = null,
+                isAddingTask = false,
+                isEditMode = false,
+                isProfileMode = false,
+            )
         }
     }
 
@@ -218,36 +267,49 @@ class BackgroundTaskViewModel(
 
     // ==================== Touch Input ====================
 
-    fun onTouchDown(x: Int, y: Int) {
+    fun onTouchDown(x: Int, y: Int, contact: Int) {
         runCatching {
-            RemoteServiceManager.getInstanceOrNull()?.touchDown(x, y)
+            RemoteServiceManager.getInstanceOrNull()?.touchDown(x, y, contact)
         }.onFailure {
-            Timber.e(it, "touchDown failed at ($x, $y)")
+            Timber.e(it, "touchDown failed at ($x, $y) contact=$contact")
         }
     }
 
-    fun onTouchMove(x: Int, y: Int) {
+    fun onTouchMove(x: Int, y: Int, contact: Int) {
         runCatching {
-            RemoteServiceManager.getInstanceOrNull()?.touchMove(x, y)
+            RemoteServiceManager.getInstanceOrNull()?.touchMove(x, y, contact)
         }.onFailure {
-            Timber.e(it, "touchMove failed at ($x, $y)")
+            Timber.e(it, "touchMove failed at ($x, $y) contact=$contact")
         }
     }
 
-    fun onTouchUp(x: Int, y: Int) {
+    fun onTouchUp(x: Int, y: Int, contact: Int) {
         runCatching {
-            RemoteServiceManager.getInstanceOrNull()?.touchUp(x, y)
+            RemoteServiceManager.getInstanceOrNull()?.touchUp(x, y, contact)
         }.onFailure {
-            Timber.e(it, "touchUp failed at ($x, $y)")
+            Timber.e(it, "touchUp failed at ($x, $y) contact=$contact")
+        }
+    }
+
+    fun onTouchCancel() {
+        runCatching {
+            RemoteServiceManager.getInstanceOrNull()?.touchCancel()
+        }.onFailure {
+            Timber.e(it, "touchCancel failed")
         }
     }
 
     fun onScreenOff() {
-        runCatching {
-            hardwareScreenOffManager.activate()
-        }.onFailure {
-            Timber.e(it, "onScreenOff failed")
+        // 硬件熄屏：仅下发一次关闭物理屏幕的指令，无状态、幂等（再点必发，不会卡死）。
+        // 启用该功能时 MainActivity 始终持有 FLAG_KEEP_SCREEN_ON 保持系统唤醒、不锁屏；
+        // 屏幕恢复由系统在用户唤醒时处理，会话结束/服务销毁时由 PowerController 的 flag 兜底。
+        val service = RemoteServiceManager.getInstanceOrNull()
+        if (service == null) {
+            Timber.w("onScreenOff skipped: remote service unavailable")
+            return
         }
+        runCatching { service.setDisplayPower(false) }
+            .onFailure { Timber.e(it, "onScreenOff failed") }
     }
 
     // ==================== Task Chain ====================
@@ -312,7 +374,7 @@ class BackgroundTaskViewModel(
 
     fun onDeleteProfile(profileId: String) {
         viewModelScope.launch {
-            chainState.deleteProfile(profileId)
+            chainState.removeProfile(profileId)
             _state.update { it.copy(selectedNodeId = null) }
         }
     }
@@ -384,6 +446,12 @@ class BackgroundTaskViewModel(
         _state.update { it.copy(isFullscreenMonitor = !it.isFullscreenMonitor) }
     }
 
+    /** 进入画中画时调用：全屏预览锁了横屏并收了系统栏，留着会干扰小窗 */
+    fun onExitFullscreenMonitor() {
+        if (!_state.value.isFullscreenMonitor) return
+        _state.update { it.copy(isFullscreenMonitor = false) }
+    }
+
     fun onTabChange(tab: PanelTab) {
         _state.update { it.copy(current = tab) }
     }
@@ -403,18 +471,10 @@ class BackgroundTaskViewModel(
         }
     }
 
-    private suspend fun doSwitchProfile(request: ScheduledExecutionRequest?) {
-        if (request != null && chainState.activeProfileId.value != request.profileId) {
-            chainState.switchProfile(request.profileId)
-        }
-    }
-
+    /** 手动启动（定时走 [LaunchPipeline] + [StartTaskChainUseCase]）。 */
     private suspend fun startTasksInternal(
-        request: ScheduledExecutionRequest? = null,
         context: TaskStartContext,
     ): UiText? {
-        doSwitchProfile(request)
-
         val plan = when (
             val decision = prepareTaskStart(
                 chain = chainState.chain.value,
@@ -430,54 +490,43 @@ class BackgroundTaskViewModel(
                 pendingStart = null
                 val message = application.resolveTaskStartDecisionMessage(decision)
                 Timber.w("Validation failed: %s", message.resolve(application))
-                if (request != null) {
-                    showStartFailedDialog(message)
-                } else {
-                    showDialog(application.createStartBlockedDialog(message))
-                }
+                showDialog(application.createStartBlockedDialog(message))
                 return message
             }
 
             is TaskStartDecision.RequiresConfirmation -> {
-                pendingStart = PendingStart(context, request)
+                pendingStart = PendingStart(context.acknowledged(decision.acknowledgement))
                 val message = application.resolveTaskStartDecisionMessage(decision)
                 showDialog(application.createStartWarningDialog(message))
                 return message
             }
         }
 
+        // 必须先于静音，换进程会让旧进程收尾时解除静音
+        compositionService.prepareResources(plan.clientType)
+
+        // 先静音后拉起游戏：appops 状态持久，提前设置零成本，消除游戏启动初期的漏音空窗
+        val muteRequested = appSettingsManager.muteOnGameLaunch.value
+        if (muteRequested && !gameMuteCoordinator.mute(plan.clientType)) {
+            _effects.send(UiEffect.toast(R.string.bg_toast_mute_failed))
+        }
+
         val result = compositionService.start(
             tasks = plan.params,
             clientType = plan.clientType,
-            isScheduled = context.mode == TaskStartMode.SCHEDULED,
-        ) {
-            if (request != null) {
-                sessionLogger.appendAndWait(
-                    application.getString(
-                        R.string.task_start_triggered_by_schedule,
-                        request.strategyName,
-                    ),
-                )
-            }
-        }
+            preflightLogs = plan.logs,
+        )
         if (result is MaaCompositionService.StartResult.Success) {
             achievementReporter.reportTaskStarted(
                 taskCount = plan.params.size,
                 launchesGame = plan.launchesGame,
                 gameAliveBeforeStart = plan.gameAliveBeforeStart,
             )
-            if (appSettingsManager.muteOnGameLaunch.value) {
-                onMuteGameSound(plan.clientType)
-            }
-            chainState.grantGameBatteryExemption(plan.clientType)
         }
 
         val message = application.resolveTaskStartFailureMessage(result)
         if (message != null) {
             Timber.w("Start failed: %s", message.resolve(application))
-            if (request != null) {
-                showStartFailedDialog(message)
-            }
             return message
         }
         return null
@@ -495,33 +544,16 @@ class BackgroundTaskViewModel(
     }
 
     fun onToggleGameSound() {
-        if (_isGameMuted.value) {
-            onUnmuteGameSound(chainState.getClientTypeOrNull())
-        } else {
-            onMuteGameSound(chainState.getClientTypeOrNull())
-        }
-    }
-
-    private fun onMuteGameSound(clientType: String?) {
-        clientType?.let {
-            val pkg = Packages[it] ?: return
-            RemoteServiceManager.getInstanceOrNull()
-                ?.setPlayAudioOpAllowed(pkg, false)
-            _isGameMuted.value = true
-        }
-    }
-
-    private fun onUnmuteGameSound(clientType: String?) {
-        clientType?.let {
-            val pkg = Packages[it] ?: return
-            RemoteServiceManager.getInstanceOrNull()
-                ?.setPlayAudioOpAllowed(pkg, true)
-            _isGameMuted.value = false
+        viewModelScope.launch {
+            val ok = gameMuteCoordinator.toggle(chainState.clientType)
+            if (!ok) {
+                _effects.send(UiEffect.toast(R.string.bg_toast_mute_failed))
+            }
         }
     }
 
     /**
-     * 调试用：请求远端进程抓取当前帧缓冲并保存 PNG 到 {rootDir}/debug/screenshots，
+     * 调试用：请求远端进程抓取当前帧缓冲并保存 PNG 到 {coreRootDir}/debug/screenshots，
      * 结果通过 [screenshotMessage] 反馈给 UI。
      *
      * 由远端（shell 进程）直接落盘——它对 userDir/debug 有写权限（同 logcat 抓取），
@@ -531,7 +563,7 @@ class BackgroundTaskViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val savedName = runCatching {
                 RemoteServiceManager.getInstanceOrNull()
-                    ?.captureFramePng(pathConfig.debugScreenshotsDir)
+                    ?.captureFramePng(pathConfig.coreDebugScreenshotsDir)
                     ?.let { File(it).name }
             }.onFailure { Timber.e(it, "captureDebugScreenshot failed") }
                 .getOrNull()
@@ -568,14 +600,8 @@ class BackgroundTaskViewModel(
                 _state.update { it.copy(dialog = null) }
                 pendingStart = null
                 if (pending != null) {
-                    val acked = pending.context.acknowledged(
-                        TaskStartAcknowledgement.GAME_NOT_RUNNING_WITHOUT_WAKE_UP
-                    )
                     viewModelScope.launch {
-                        val message = startTasksInternal(
-                            request = pending.request,
-                            context = acked,
-                        )
+                        val message = startTasksInternal(context = pending.context)
                         if (message != null && state.value.dialog == null) {
                             showStartFailedDialog(message)
                         }
@@ -601,7 +627,6 @@ class BackgroundTaskViewModel(
     }
 
     override fun onCleared() {
-        coordinator.cancel()
         touchPreviewController.onClear()
         super.onCleared()
     }

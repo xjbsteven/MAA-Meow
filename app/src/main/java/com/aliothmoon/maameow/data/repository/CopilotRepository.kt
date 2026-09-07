@@ -45,16 +45,17 @@ class CopilotRepository(
      * @param json 作业 JSON 内容
      * @return 保存的文件绝对路径
      */
-    suspend fun saveCopilotJsonByName(fileName: String, json: String): String = withContext(Dispatchers.IO) {
-        val nameWithoutExt = fileName.substringBeforeLast(".")
-        val ext = fileName.substringAfterLast(".", "json")
-        val hash = Integer.toHexString(nameWithoutExt.hashCode()).takeLast(6)
-        val safeName = "${nameWithoutExt}_${hash}.${ext}".replace(Regex("[^a-zA-Z0-9._-]"), "_")
-        val file = File(copilotDir, safeName)
-        file.writeText(json, Charsets.UTF_8)
-        Timber.d("$TAG: 作业已保存: ${file.absolutePath} (原始: $fileName)")
-        file.absolutePath
-    }
+    suspend fun saveCopilotJsonByName(fileName: String, json: String): String =
+        withContext(Dispatchers.IO) {
+            val nameWithoutExt = fileName.substringBeforeLast(".")
+            val ext = fileName.substringAfterLast(".", "json")
+            val hash = Integer.toHexString(nameWithoutExt.hashCode()).takeLast(6)
+            val safeName = "${nameWithoutExt}_${hash}.${ext}".replace(Regex("[^a-zA-Z0-9._-]"), "_")
+            val file = File(copilotDir, safeName)
+            file.writeText(json, Charsets.UTF_8)
+            Timber.d("$TAG: 作业已保存: ${file.absolutePath} (原始: $fileName)")
+            file.absolutePath
+        }
 
     /**
      * 从文件路径读取 copilot JSON
@@ -97,6 +98,9 @@ class CopilotRepository(
      * 获取 copilot 目录路径
      */
     fun getCopilotDir(): String = copilotDir.absolutePath
+
+    /** 下发给 core 的作业路径：独立目录模式下要映射到提权进程那边 */
+    fun toCorePath(filePath: String): String = pathConfig.toCorePath(filePath)
 
     suspend fun loadTaskList(): List<CopilotListItem> = withContext(Dispatchers.IO) {
         runCatching {

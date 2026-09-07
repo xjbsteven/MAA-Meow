@@ -1,5 +1,6 @@
 package com.aliothmoon.maameow.domain.service
 
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.api.CopilotApiService
 import com.aliothmoon.maameow.data.model.CopilotConfig
 import com.aliothmoon.maameow.data.model.copilot.CopilotListItem
@@ -9,6 +10,8 @@ import com.aliothmoon.maameow.data.repository.CopilotRepository
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
 import com.aliothmoon.maameow.utils.JsonUtils
+import com.aliothmoon.maameow.utils.i18n.LocalizedException
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.buildJsonArray
@@ -20,6 +23,25 @@ data class CopilotSetInfo(
     val name: String,
     val description: String,
     val copilotIds: List<Int>
+)
+
+/** 作业站神秘代码类型 */
+enum class CopilotCodeType {
+    /** 单个作业 */
+    COPILOT,
+
+    /** 作业集 */
+    COPILOT_SET,
+}
+
+/**
+ * 解析后的作业站神秘代码
+ * @param ambiguous 旧格式（maa://、纯数字）无法区分作业/作业集；合并后统一当单个作业处理，此标记仅供未来迁移参考
+ */
+data class CopilotCode(
+    val type: CopilotCodeType,
+    val id: Int,
+    val ambiguous: Boolean = false,
 )
 
 sealed class CopilotRequestException(message: String, cause: Throwable? = null) :
@@ -58,11 +80,28 @@ class CopilotManager(
     private val apiService: CopilotApiService,
     private val repository: CopilotRepository,
 ) {
+    companion object {
+        /** 旧格式前缀，长期保留解析兼容（见 parseCopilotCode） */
+        private const val LEGACY_ID_PREFIX = "maa://"
+
+        /** 新格式前缀，prts://12345 为作业 */
+        private const val NEW_ID_PREFIX = "prts://"
+
+        /** 新格式作业集前缀，prts://s12345 为作业集 */
+        private const val NEW_SET_ID_PREFIX = "prts://s"
+
+        private const val BILIBILI_VIDEO_URL = "https://www.bilibili.com/video/"
+
+        /** 同 WPF BVRegex；\b 防止命中 nav12 之类 */
+        private val BILIBILI_VIDEO_ID_REGEX =
+            Regex("""\b(?:av\d+|bv[a-z0-9]{10})(?:/\?p=\d+)?""", RegexOption.IGNORE_CASE)
+    }
+
     // ===== 作业解析 =====
 
     /**
      * 从 PRTS Plus ID 解析作业
-     * 支持 "maa://1234", "1234", "maa://1234?list=1" 格式
+     * 支持 parseCopilotCode 的全部格式
      * @return Triple(copilotId, taskData, originalJsonContent)
      */
     suspend fun parseFromId(idString: String): Result<Triple<Int, CopilotTaskData, String>> {
@@ -125,7 +164,7 @@ class CopilotManager(
      */
     suspend fun parseFromFile(filePath: String): Result<Pair<CopilotTaskData, String>> {
         val json = repository.readCopilotJson(filePath)
-            ?: return Result.failure(Exception("文件不存在: $filePath"))
+            ?: return Result.failure(LocalizedException(uiTextOf(R.string.copilot_file_read_error)))
         val taskData = parseJson(json).getOrElse { return Result.failure(it) }
         return Result.success(Pair(taskData, json))
     }
@@ -195,14 +234,14 @@ class CopilotManager(
             return MaaTaskParams(
                 type = MaaTaskType.PARADOX_COPILOT,
                 params = buildJsonObject {
-                    put("filename", filePath)
+                    put("filename", repository.toCorePath(filePath))
                 }.toString()
             )
         }
         return MaaTaskParams(
             type = taskType,
             params = buildJsonObject {
-                put("filename", filePath)
+                put("filename", repository.toCorePath(filePath))
                 put("formation", config.formation)
                 put("support_unit_usage", if (config.useSupportUnit) config.supportUnitUsage else 0)
                 put("add_trust", config.addTrust)
@@ -223,20 +262,10 @@ class CopilotManager(
         items: List<CopilotListItem>,
         config: CopilotConfig
     ): List<MaaTaskParams> {
-        val checkedItems = items.filter { it.isChecked }
         // 上游 #16985: 每个作业项携带其在完整列表中的稳定下标 id(从0起), core 据此回传当前执行项,
         // 用于跳过失败作业后仍能把"成功"归属到正确项。坐标系须与 onCopilotTaskSuccess 对全列表取下标一致。
         val indexed = items.withIndex().filter { it.value.isChecked }
-        if (tabIndex == 1) { // TAB_SSS — MAA Core SSSCopilot 只接受单个 filename，逐个提交
-            return checkedItems.map { item ->
-                MaaTaskParams(
-                    type = MaaTaskType.SSS_COPILOT,
-                    params = buildJsonObject {
-                        put("filename", item.filePath)
-                    }.toString()
-                )
-            }
-        }
+        // 保全/其他活动不支持战斗列表（同 WPF）
         if (tabIndex == 2) { // TAB_PARADOX
             return listOf(
                 MaaTaskParams(
@@ -247,7 +276,7 @@ class CopilotManager(
                             indexed.forEach { (i, item) ->
                                 add(buildJsonObject {
                                     put("id", i)
-                                    put("filename", item.filePath)
+                                    put("filename", repository.toCorePath(item.filePath))
                                 })
                             }
                         })
@@ -264,14 +293,17 @@ class CopilotManager(
                         indexed.forEach { (i, item) ->
                             add(buildJsonObject {
                                 put("id", i)
-                                put("filename", item.filePath)
-                                put("stage_name", item.name)
+                                put("filename", repository.toCorePath(item.filePath))
+                                // 不发 nav_name_override，由 core 6.17 起自己从作业文件推导导航 code
                                 put("is_raid", item.isRaid)
                             })
                         }
                     })
                     put("formation", config.formation)
-                    put("support_unit_usage", if (config.useSupportUnit) config.supportUnitUsage else 0)
+                    put(
+                        "support_unit_usage",
+                        if (config.useSupportUnit) config.supportUnitUsage else 0
+                    )
                     put("add_trust", config.addTrust)
                     put("ignore_requirements", config.ignoreRequirements)
                     // 与 WPF 一致：战斗列表模式固定单次消费，不复用单作业循环次数配置
@@ -289,26 +321,56 @@ class CopilotManager(
     // ===== 工具方法 =====
 
     /**
-     * 从输入字符串提取 copilot ID
-     * 支持格式: "maa://1234", "1234", "maa://1234?list=1"
+     * 解析作业站神秘代码，识别所有已知格式并提取数字 ID
+     * 支持格式: "prts://1234", "prts://s1234", "s1234", "maa://1234", "maa://1234?list=1", "1234"
      */
-    private fun extractCopilotId(input: String): Int? {
+    fun parseCopilotCode(input: String): CopilotCode? {
         val trimmed = input.trim()
-        // maa://1234 or maa://1234?...
-        val maaPrefix = "maa://"
-        if (trimmed.startsWith(maaPrefix, ignoreCase = true)) {
-            val idPart = trimmed.drop(maaPrefix.length).substringBefore("?").substringBefore("/")
-            return idPart.toIntOrNull()
+        if (trimmed.isEmpty()) return null
+
+        // 带前缀的格式（从长到短匹配，避免 prts://s 被 prts:// 抢先）
+        if (trimmed.startsWith(NEW_SET_ID_PREFIX, ignoreCase = true)) {
+            val id = trimmed.drop(NEW_SET_ID_PREFIX.length).toIntOrNull() ?: return null
+            return CopilotCode(CopilotCodeType.COPILOT_SET, id)
         }
-        // Pure number
-        return trimmed.toIntOrNull()
+        if (trimmed.startsWith(NEW_ID_PREFIX, ignoreCase = true)) {
+            val id = trimmed.drop(NEW_ID_PREFIX.length).toIntOrNull() ?: return null
+            return CopilotCode(CopilotCodeType.COPILOT, id)
+        }
+        // 支持 maa:// 旧格式
+        if (trimmed.startsWith(LEGACY_ID_PREFIX, ignoreCase = true)) {
+            val rest = trimmed.drop(LEGACY_ID_PREFIX.length)
+            val id = rest.substringBefore("?").substringBefore("/").toIntOrNull() ?: return null
+            // maa://1234?list=1 为既有的作业集约定；无参数时类型不明确，默认单个作业
+            return if (rest.contains("list=", ignoreCase = true)) {
+                CopilotCode(CopilotCodeType.COPILOT_SET, id)
+            } else {
+                CopilotCode(CopilotCodeType.COPILOT, id, ambiguous = true)
+            }
+        }
+        // s1234 格式作业集
+        if (trimmed.length > 1 && (trimmed[0] == 's' || trimmed[0] == 'S')) {
+            trimmed.drop(1).toIntOrNull()?.let {
+                return CopilotCode(CopilotCodeType.COPILOT_SET, it)
+            }
+        }
+        // 纯数字，类型不明确，默认单个作业
+        return trimmed.toIntOrNull()?.let {
+            CopilotCode(CopilotCodeType.COPILOT, it, ambiguous = true)
+        }
+    }
+
+    fun extractVideoUrl(details: String): String {
+        if (details.isBlank()) return ""
+        val match = BILIBILI_VIDEO_ID_REGEX.find(details) ?: return ""
+        return BILIBILI_VIDEO_URL + match.value
     }
 
     /**
-     * 检查输入是否为作业集 ID (带 list 参数)
+     * 从输入字符串提取 copilot ID（不区分作业/作业集，路由由调用方负责）
      */
-    fun isSetId(input: String): Boolean {
-        return input.trim().contains("list=", ignoreCase = true)
+    private fun extractCopilotId(input: String): Int? {
+        return parseCopilotCode(input)?.id
     }
 
     /**

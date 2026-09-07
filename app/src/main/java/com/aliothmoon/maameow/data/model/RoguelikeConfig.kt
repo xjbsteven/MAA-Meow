@@ -1,10 +1,11 @@
 package com.aliothmoon.maameow.data.model
 
+import com.aliothmoon.maameow.domain.enums.RoguelikeBlackFlowCultivationTarget
 import com.aliothmoon.maameow.domain.enums.RoguelikeBoskySubNodeType
 import com.aliothmoon.maameow.domain.enums.RoguelikeMode
+import com.aliothmoon.maameow.domain.enums.UiUsageConstants
 import com.aliothmoon.maameow.maa.task.MaaTaskParams
 import com.aliothmoon.maameow.maa.task.MaaTaskType
-import com.aliothmoon.maameow.data.model.TaskParamProvider
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -18,7 +19,7 @@ import kotlinx.serialization.json.put
 @Serializable
 data class RoguelikeConfig(
     // 基础设置
-    val theme: String = "JieGarden",  // 主题：Phantom/Mizuki/Sami/Sarkaz/JieGarden
+    val theme: String = "Phantom",  // 主题：Phantom/Mizuki/Sami/Sarkaz/JieGarden/BlackFlow
     val difficulty: Int = Int.MAX_VALUE,  // 难度：-1=当前, MAX_VALUE=最高, 0=最低
     val mode: RoguelikeMode = RoguelikeMode.Exp,  // 策略模式
     val squad: String = "",  // 起始分队
@@ -54,6 +55,10 @@ data class RoguelikeConfig(
     val monthlySquadCheckComms: Boolean = true,  // 月度小队通讯
     val deepExplorationAutoIterate: Boolean = true,  // 深入调查自动切换
 
+    // 黑流树海专用
+    val blackFlowCultivationTarget: RoguelikeBlackFlowCultivationTarget =
+        RoguelikeBlackFlowCultivationTarget.Cat,  // 刷襁褓动物的目标品种
+
     // 界园专用
     val findPlaytimeTarget: RoguelikeBoskySubNodeType = RoguelikeBoskySubNodeType.Ling,  // 目标常乐节点
     val startWithSeed: Boolean = false,  // 使用指定种子开局
@@ -70,17 +75,15 @@ data class RoguelikeConfig(
     val expectedCollapsalParadigms: String = "",  // 坍缩范式列表
 
     // 通用高级设置
+    // TODO: 尚未接线，本次迭代不做
+    //  上游是纯 GUI 行为，没有对应 core 参数：战斗中（StageInfo 回调）把「停止」换成
+    //  「等待 & 停止」，点了先等 RoguelikeCombatEnd 再真停，上限 10 分钟；
+    //  用途是避免肉鸽战斗中途硬停——那样游戏卡在战斗里，本次探索基本就废了
+    //  实现前要先搬家：上游放在全局 RuntimeSettings，这里却在每节点的 RoguelikeConfig 上，
+    //  两个肉鸽节点各有一份时回调侧无从取值，应挪到 AppSettingsManager
     val delayAbortUntilCombatComplete: Boolean = false  // 战斗结束前延迟停止
 ) : TaskParamProvider {
-    override fun toTaskParams(): MaaTaskParams = toTaskParams(normalizeCoreChar = { it })
-
-    /**
-     * @param normalizeCoreChar 将开局干员名归一化为简中名。
-     *   MaaCore 的 core_char 仅认简中名（BattleDataConfig::find_oper 只匹配 name 字段，
-     *   繁中/英文名会使 get_role 返回 Unknown 导致开局干员选择失败），
-     *   故下发前须把本地化名反查回简中名。对齐 WPF RoguelikeSettingsUserControlModel.cs:1073。
-     */
-    fun toTaskParams(normalizeCoreChar: (String) -> String): MaaTaskParams {
+    override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
         // WPF 条件变量
         val squadIsProfessional = mode == RoguelikeMode.Collectible && theme != "Phantom" &&
                 squad in listOf("突击战术分队", "堡垒战术分队", "远程战术分队", "破坏战术分队")
@@ -94,7 +97,13 @@ data class RoguelikeConfig(
             put("mode", mode.value)  // MaaCore 期望整数值
             if (squad.isNotBlank()) put("squad", squad)
             if (roles.isNotBlank()) put("roles", roles)
-            if (coreChar.isNotBlank()) put("core_char", normalizeCoreChar(coreChar))
+            if (coreChar.isNotBlank()) {
+                // MaaCore 的 core_char 仅认简中名（BattleDataConfig::find_oper 只匹配 name 字段，
+                // 繁中/英文名会使 get_role 返回 Unknown 导致开局干员选择失败）
+                val normalized = ctx.resourceDataManager
+                    .getCharacterByNameOrAlias(coreChar)?.name ?: coreChar
+                put("core_char", normalized)
+            }
             put("starts_count", startsCount)
 
             //  投资相关 
@@ -110,9 +119,11 @@ data class RoguelikeConfig(
                     "stop_when_investment_full",
                     stopWhenInvestmentFull && mode == RoguelikeMode.Investment
                 )
+                // WPF RoguelikeSettings:1378 黑流树海无此玩法
                 put(
                     "investment_with_more_score",
-                    investmentWithMoreScore && mode == RoguelikeMode.Investment
+                    investmentWithMoreScore && mode == RoguelikeMode.Investment &&
+                            theme != UiUsageConstants.Roguelike.THEME_BLACK_FLOW
                 )
             }
 
@@ -133,7 +144,10 @@ data class RoguelikeConfig(
                     // WPF AsstRoguelikeTask:1089 / Serialize:245
                     put(
                         "start_with_elite_two",
-                        startWithEliteTwo && squadIsProfessional && theme in listOf("Mizuki", "Sami")
+                        startWithEliteTwo && squadIsProfessional && theme in listOf(
+                            "Mizuki",
+                            "Sami"
+                        )
                     )
                     // WPF AsstRoguelikeTask:1090 / Serialize:246 (仅依赖 only 开关与主题)
                     put(
@@ -176,6 +190,15 @@ data class RoguelikeConfig(
                 RoguelikeMode.FindPlaytime -> {
                     put("find_playTime_target", findPlaytimeTarget.value)  // MaaCore 期望整数值
                 }
+
+                RoguelikeMode.BlackFlowBabyAnimal -> {
+                    // 对齐 WPF AsstRoguelikeTask:218，主题与模式都对上才发；
+                    // 其余情况 core 按 mode + investment_enabled 自行推导 strategy
+                    if (theme == UiUsageConstants.Roguelike.THEME_BLACK_FLOW) {
+                        put("blackflow_strategy", "baby_animal")
+                        put("blackflow_cultivation_target", blackFlowCultivationTarget.value)
+                    }
+                }
             }
 
             //  萨米专用（跨模式） 
@@ -201,7 +224,7 @@ data class RoguelikeConfig(
                 put("start_with_seed", seed)
             }
         }
-        return MaaTaskParams(MaaTaskType.ROGUELIKE, paramsJson.toString())
+        return listOf(MaaTaskParams(MaaTaskType.ROGUELIKE, paramsJson.toString()))
     }
 
     companion object {

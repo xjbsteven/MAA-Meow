@@ -1,29 +1,28 @@
 ﻿package com.aliothmoon.maameow.maa.callback
 
 import android.content.Context
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.withStyle
 import com.alibaba.fastjson2.JSONArray
 import com.alibaba.fastjson2.JSONObject
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.data.achievement.AchievementEvents
 import com.aliothmoon.maameow.data.achievement.AchievementRepository
 import com.aliothmoon.maameow.data.model.FightConfig
 import com.aliothmoon.maameow.data.model.LogItem
 import com.aliothmoon.maameow.data.model.LogLevel
+import com.aliothmoon.maameow.data.model.RecruitCombination
+import com.aliothmoon.maameow.data.model.RecruitOper
 import com.aliothmoon.maameow.data.model.RoguelikeConfig
 import com.aliothmoon.maameow.data.preferences.TaskChainState
+import com.aliothmoon.maameow.data.repository.DepotRepository
 import com.aliothmoon.maameow.data.resource.ActivityManager
 import com.aliothmoon.maameow.data.resource.ResourceDataManager
 import com.aliothmoon.maameow.domain.service.MaaNotificationCenter
 import com.aliothmoon.maameow.domain.service.MaaSessionLogger
-import com.aliothmoon.maameow.maa.AsstMsg
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import org.koin.java.KoinJavaComponent.inject
 import timber.log.Timber
 import java.util.Locale
 
@@ -41,10 +40,15 @@ class SubTaskHandler(
     private val chainState: TaskChainState,
     private val activityManager: ActivityManager,
     private val achievementRepository: AchievementRepository,
+    private val depotRepository: DepotRepository,
 ) {
-    private val achievementScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val resources = applicationContext.resources
     private val packageName = applicationContext.packageName
+
+    // 懒取：实现方 MaaCompositionService 反过来依赖本类，构造注入会成环
+    private val executionStateHolder: MaaExecutionStateHolder
+            by inject(MaaExecutionStateHolder::class.java)
 
     // 战斗进度临时暂存（FightTimes/SanityBeforeStage 先于 StartButton2/AnnihilationConfirm 到达）
     private data class PendingFightState(
@@ -80,22 +84,9 @@ class SubTaskHandler(
         lastSanitySnapshot = null
     }
 
-    /**
-     * 主分发方法
-     */
-    fun handle(msg: AsstMsg, details: JSONObject) {
-        when (msg) {
-            AsstMsg.SubTaskError -> handleError(details)
-            AsstMsg.SubTaskStart -> handleStart(details)
-            AsstMsg.SubTaskCompleted -> handleCompleted(details)
-            AsstMsg.SubTaskExtraInfo -> handleExtraInfo(details)
-            else -> Timber.w("SubTaskHandler received unexpected msg: $msg")
-        }
-    }
-
     // ==================== SubTaskError (20000) ====================
 
-    private fun handleError(details: JSONObject) {
+    fun onSubTaskError(details: JSONObject) {
         val subtask = details.getString("subtask") ?: return
 
         when (subtask) {
@@ -109,7 +100,7 @@ class SubTaskHandler(
 
             "AutoRecruitTask" -> {
                 val why = details.getString("why") ?: str("ErrorOccurred")
-                append("$why, ${str("HasReturned")}", LogLevel.ERROR)
+                append("${localizedWhy(why)}, ${str("HasReturned")}", LogLevel.ERROR)
             }
 
             "RecognizeDrops" -> {
@@ -118,7 +109,7 @@ class SubTaskHandler(
 
             "ReportToPenguinStats" -> {
                 val why = details.getString("why") ?: ""
-                append("$why, ${str("GiveUpUploadingPenguins")}", LogLevel.WARNING)
+                append("${localizedWhy(why)}, ${str("GiveUpUploadingPenguins")}", LogLevel.WARNING)
             }
 
             "CheckStageValid" -> {
@@ -143,7 +134,7 @@ class SubTaskHandler(
                     }
                     append(sb.trimEnd().toString(), LogLevel.ERROR)
                 }
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.SUB_TASK_ERROR
                         "subtask" to subtask
@@ -152,7 +143,7 @@ class SubTaskHandler(
             }
 
             "CopilotTask" -> {
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.SUB_TASK_ERROR
                         "subtask" to subtask
@@ -166,8 +157,22 @@ class SubTaskHandler(
                 }
             }
 
+            "InfrastInfoTask" -> {
+                // 常规模式下布局识别失败会中止整个基建任务
+                val what = details.getJSONObject("details")?.getString("what")
+                if (what == "FacilityLayoutRecognitionFailed") {
+                    append(str("InfrastFacilityLayoutRecognitionFailed"), LogLevel.ERROR)
+                }
+                ioScope.launch {
+                    achievementRepository.report {
+                        event = AchievementEvents.SUB_TASK_ERROR
+                        "subtask" to subtask
+                    }
+                }
+            }
+
             else -> {
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.SUB_TASK_ERROR
                         "subtask" to subtask
@@ -180,7 +185,7 @@ class SubTaskHandler(
 
     // ==================== SubTaskStart (20001) ====================
 
-    private fun handleStart(details: JSONObject) {
+    fun onSubTaskStart(details: JSONObject) {
         val subtask = details.getString("subtask") ?: return
 
         when (subtask) {
@@ -240,9 +245,17 @@ class SubTaskHandler(
                 notificationCenter.notifySubTaskFailure(message)
             }
 
+            // 奇象巡展遇到暂未收录的奇象，core 已停任务，交给玩家手动战斗
+            "CheckEncounter-Uncollected" -> {
+                val title = resources.getString(R.string.runlog_exhibition_uncollected_title)
+                val content = resources.getString(R.string.runlog_exhibition_uncollected_content)
+                append("$title：$content", LogLevel.WARNING)
+                notificationCenter.notifyHandoverRequired(title, content)
+            }
+
             "RecruitRefreshConfirm" -> {
                 append(str("LabelsRefreshed"), LogLevel.INFO)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.PROCESS_TASK_STARTED
                         "task" to task
@@ -252,7 +265,7 @@ class SubTaskHandler(
 
             "RecruitConfirm" -> {
                 append(str("RecruitConfirm"), LogLevel.INFO)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.PROCESS_TASK_STARTED
                         "task" to task
@@ -261,12 +274,13 @@ class SubTaskHandler(
             }
 
             "InfrastDormDoubleConfirmButton" -> {
-                append(str("InfrastDormDoubleConfirmed"), LogLevel.ERROR)
+                // 待进驻干员已进驻其他设施，Core 会自动点确认，仅提示
+                append(str("InfrastDormDoubleConfirmed"), LogLevel.INFO)
             }
 
             "ExitThenAbandon" -> {
                 append(str("ExplorationAbandoned"), LogLevel.ROGUELIKE_ABANDON)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.PROCESS_TASK_STARTED
                         "task" to task
@@ -308,7 +322,7 @@ class SubTaskHandler(
 
             "StageTraderInvestSystemFull" -> {
                 append(str("UpperLimit"), LogLevel.INFO)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.PROCESS_TASK_STARTED
                         "task" to task
@@ -316,13 +330,18 @@ class SubTaskHandler(
                 }
             }
 
-            "OfflineConfirm" -> {
-                append(str("GameDrop"), LogLevel.WARNING)
+            // 上游移除掉线重连后 core 检测到掉线弹窗即 Stop 当前任务链，
+            // 队列剩余任务要在这里一起中止
+            "OfflineConfirm", "OfflineConfirmAfterBattle" -> {
+                val message = str("GameDrop")
+                append(message, LogLevel.ERROR)
+                notificationCenter.notifySubTaskFailure(message, sendExternal = true)
+                executionStateHolder.requestStopFromCallback()
             }
 
             "GamePass" -> {
                 append(str("RoguelikeGamePass"), LogLevel.RARE)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.PROCESS_TASK_STARTED
                         "task" to task
@@ -353,7 +372,7 @@ class SubTaskHandler(
 
             "StageDrops-Stars-3", "StageDrops-Stars-Adverse" -> {
                 append(str("CompleteCombat"), LogLevel.INFO)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.PROCESS_TASK_STARTED
                         "task" to task
@@ -371,7 +390,7 @@ class SubTaskHandler(
 
     // ==================== SubTaskCompleted (20002) ====================
 
-    private fun handleCompleted(details: JSONObject) {
+    fun onSubTaskCompleted(details: JSONObject) {
         val subtask = details.getString("subtask") ?: return
 
         if (subtask == "ProcessTask") {
@@ -382,7 +401,7 @@ class SubTaskHandler(
             when (taskchain) {
                 "Infrast" if task == "UnlockClues" -> {
                     append(str("ClueExchangeUnlocked"), LogLevel.TRACE)
-                    achievementScope.launch {
+                    ioScope.launch {
                         achievementRepository.report {
                             event = AchievementEvents.PROCESS_TASK_COMPLETED
                             "taskchain" to taskchain
@@ -393,7 +412,7 @@ class SubTaskHandler(
 
                 "Infrast" if task == "SendClues" -> {
                     append(str("CluesSent"), LogLevel.TRACE)
-                    achievementScope.launch {
+                    ioScope.launch {
                         achievementRepository.report {
                             event = AchievementEvents.PROCESS_TASK_COMPLETED
                             "taskchain" to taskchain
@@ -405,7 +424,7 @@ class SubTaskHandler(
                 "Roguelike" if task == "StartExplore" -> {
                     val times = innerDetails.getIntValue("exec_times", 0)
                     append("${str("BegunToExplore")} $times ${str("UnitTime")}", LogLevel.INFO)
-                    achievementScope.launch {
+                    ioScope.launch {
                         val coreChar = normalizedRoguelikeCoreChar()
                         achievementRepository.report {
                             event = AchievementEvents.PROCESS_TASK_COMPLETED
@@ -420,7 +439,7 @@ class SubTaskHandler(
                 // OF-1 信用战完成现在会触发 Copilot@StageDrops-Stars-3
                 "Mall" if task == "StageDrops-Stars-3" -> {
                     append("${str("CompleteTask")}${str("CreditFight")}", LogLevel.TRACE)
-                    achievementScope.launch {
+                    ioScope.launch {
                         achievementRepository.report {
                             event = AchievementEvents.PROCESS_TASK_COMPLETED
                             "taskchain" to taskchain
@@ -438,7 +457,7 @@ class SubTaskHandler(
 
     // ==================== SubTaskExtraInfo (20003) ====================
 
-    private fun handleExtraInfo(details: JSONObject) {
+    fun onSubTaskExtraInfo(details: JSONObject) {
         // Depot / OperBox 通过 taskchain 路由（与 WPF 一致）
         val taskchain = details.getString("taskchain")
         val subDetails = details.getJSONObject("details")
@@ -456,7 +475,17 @@ class SubTaskHandler(
 
         val what = details.getString("what") ?: return
 
+        // 材料合成整组消息（与 WPF ProcMaterialSynthesisMsg 一致，按前缀路由）
+        if (what.startsWith("MaterialSynthesis")) {
+            logMaterialSynthesis(what, subDetails)
+            return
+        }
+
         when (what) {
+            "PixelPaintProgress" -> logPixelPaintProgress(
+                toolboxResultCollector.onPixelPaintProgress(subDetails)
+            )
+
             "FightTimes" -> {
                 pendingFight = pendingFight.copy(
                     timesFinished = subDetails?.getIntValue("times_finished"),
@@ -473,6 +502,29 @@ class SubTaskHandler(
                     lastSanitySnapshot = SanitySnapshot(cur, max)
                 }
             }
+
+            "BlackFlowStrategyStarted" -> {
+                val profile = resources.getString(
+                    BlackFlowLogText.profile(subDetails?.getString("profile"))
+                )
+                append(
+                    resources.getString(R.string.blackflow_strategy_started, profile),
+                    LogLevel.INFO,
+                )
+            }
+
+            "BlackFlowStrategyResult" -> handleBlackFlowStrategyResult(subDetails)
+            "BlackFlowRoutingDecision" -> handleBlackFlowRoutingDecision(subDetails)
+            "BlackFlowRoutingWarning" -> {
+                append(
+                    resources.getString(
+                        BlackFlowLogText.warning(subDetails?.getString("code"))
+                    ),
+                    LogLevel.WARNING,
+                )
+            }
+
+            "BlackFlowMilestoneChanged" -> handleBlackFlowMilestoneChanged(subDetails)
 
             "StageDrops" -> handleStageDrops(subDetails)
             "AccountSwitch" -> {
@@ -549,19 +601,19 @@ class SubTaskHandler(
 
             "RecruitResult" -> {
                 val level = subDetails?.getIntValue("level") ?: 0
-                val annotatedTooltip = buildRecruitResultTooltip(subDetails)
+                val recruitTooltip = buildRecruitResultTooltip(subDetails)
                 sessionLogger.append(
                     LogItem(
                         content = "$level ★ Tags",
                         level = if (level >= 5) LogLevel.RARE else LogLevel.INFO,
-                        annotatedTooltip = annotatedTooltip
+                        recruitTooltip = recruitTooltip
                     )
                 )
                 toolboxResultCollector.onRecruitResult(subDetails)
                 if (level >= 5) {
                     notificationCenter.notifyRecruitHighRarity(level)
                 }
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.RECRUIT_RESULT
                         "level" to level
@@ -576,7 +628,7 @@ class SubTaskHandler(
 
             "RecruitTagsSelected" -> {
                 val tags = subDetails?.getJSONArray("tags")?.joinToString("\n") ?: str("NoDrop")
-                append("${str("Choose")} Tags：\n$tags", LogLevel.TRACE)
+                append(str("RecruitTagsSelectedLog", tags), LogLevel.TRACE)
             }
 
             "RecruitTagsRefreshed" -> {
@@ -666,7 +718,7 @@ class SubTaskHandler(
             "UnsupportedLevel" -> {
                 val level = subDetails?.getString("level") ?: ""
                 append("${str("UnsupportedLevel")}$level", LogLevel.ERROR)
-                achievementScope.launch {
+                ioScope.launch {
                     achievementRepository.report {
                         event = AchievementEvents.SUB_TASK_EXTRA_INFO
                         "what" to what
@@ -688,16 +740,21 @@ class SubTaskHandler(
         val stats = subDetails?.getJSONArray("stats")
         val curTimes = subDetails?.getIntValue("cur_times") ?: -1
         val sb = StringBuilder("$stageCode ${str("TotalDrop")}\n")
+        val drops = mutableListOf<Pair<String, Int>>()
 
-        if (stats == null || stats.isEmpty()) {
+        if (stats.isNullOrEmpty()) {
             sb.append(str("NoDrop"))
         } else {
             for (i in 0 until stats.size) {
                 val item = stats.getJSONObject(i)
+                val itemId = item.getString("itemId") ?: ""
                 val itemName = item.getString("itemName") ?: ""
                 val displayName = if (itemName == "furni") str("FurnitureDrop") else itemName
                 val quantity = item.getIntValue("quantity")
                 val addQuantity = item.getIntValue("addQuantity")
+                if (itemId.isNotEmpty() && addQuantity > 0) {
+                    drops += itemId to addQuantity
+                }
                 sb.append("$displayName : $quantity")
                 if (addQuantity > 0) sb.append(" (+$addQuantity)")
                 if (i < stats.size - 1) sb.append("\n")
@@ -717,6 +774,11 @@ class SubTaskHandler(
         }
 
         sessionLogger.append(sb.toString(), LogLevel.TRACE)
+
+        if (drops.isNotEmpty()) {
+            // 同步写穿内存，下一关 TaskChainStart 立刻能 countOf 到本场掉落
+            depotRepository.merge(drops)
+        }
     }
 
     private fun handleInfrastTrainingCompleted(subDetails: JSONObject?) {
@@ -783,7 +845,7 @@ class SubTaskHandler(
 
         append(baseLog + suffix, LogLevel.INFO)
         if (count > 0) {
-            achievementScope.launch {
+            ioScope.launch {
                 achievementRepository.report {
                     event = AchievementEvents.MEDICINE_USED
                     "isExpiring" to isExpiring
@@ -835,7 +897,7 @@ class SubTaskHandler(
 
     private fun handleCopilotAction(subDetails: JSONObject?) {
         val doc = subDetails?.getString("doc")
-        if (doc != null && doc.isNotEmpty()) {
+        if (!doc.isNullOrEmpty()) {
             append(doc, LogLevel.MESSAGE)
         } else {
             val action = subDetails?.getString("action") ?: ""
@@ -852,62 +914,217 @@ class SubTaskHandler(
     // ==================== 公招干员信息解析 ====================
 
     /**
-     * 解析 RecruitResult 回调中的 tag 组合与匹配干员信息，生成带颜色标注的富文本。
-     * 参考 WPF ToolboxViewModel.UpdateRecruitResult 逻辑。
-     *
-     * JSON 结构：details.result = [{ level, tags[], opers[{ id, name, level }] }, ...]
+     * 参考 WPF ToolboxViewModel.UpdateRecruitResult。颜色由 UI 层按主题渲染。
+     * JSON：details.result = [{ level, tags[], opers[{ id, name, level }] }, ...]
      */
-    private fun buildRecruitResultTooltip(details: JSONObject?): AnnotatedString? {
+    private fun buildRecruitResultTooltip(details: JSONObject?): List<RecruitCombination>? {
         val resultArray = details?.getJSONArray("result") ?: return null
         if (resultArray.isEmpty()) return null
 
-        val defaultColor = LogLevel.MESSAGE.color
+        val combos = (0 until resultArray.size).mapNotNull { i ->
+            val comb = resultArray.getJSONObject(i) ?: return@mapNotNull null
+            val tagLevel = comb.getIntValue("level")
+            val tagsArray = comb.getJSONArray("tags")
+            val tags = if (tagsArray != null) {
+                (0 until tagsArray.size).mapNotNull { tagsArray.getString(it) }
+            } else emptyList()
 
-        return buildAnnotatedString {
-            for (i in 0 until resultArray.size) {
-                val comb = resultArray.getJSONObject(i) ?: continue
-                val tagLevel = comb.getIntValue("level")
-                val tags = comb.getJSONArray("tags")?.joinToString("  ") ?: ""
-
-                // tag 组合标题行：按组合星级着色
-                withStyle(
-                    SpanStyle(
-                        color = LogLevel.forRecruitStar(tagLevel).color,
-                        fontWeight = FontWeight.Bold
-                    )
-                ) {
-                    append("$tagLevel★ Tags:  $tags")
-                }
-
-                // 干员列表：星标着色，干员名黑色，每个干员独占一行
-                val opers = comb.getJSONArray("opers")
-                if (opers != null && opers.isNotEmpty()) {
-                    val operList = (0 until opers.size).mapNotNull { j ->
-                        val oper = opers.getJSONObject(j) ?: return@mapNotNull null
-                        val operName = oper.getString("name") ?: return@mapNotNull null
-                        val operLevel = oper.getIntValue("level")
-                        val localizedName =
-                            resourceDataManager.getLocalizedCharacterName(operName) ?: operName
-                        operLevel to localizedName
-                    }.sortedByDescending { it.first }
-
-                    for ((star, name) in operList) {
-                        append("\n  ")
-                        withStyle(SpanStyle(color = LogLevel.forRecruitStar(star).color)) {
-                            append("★".repeat(star))
-                        }
-                        withStyle(SpanStyle(color = defaultColor)) {
-                            append(" $name")
-                        }
-                    }
-                }
-
-                if (i < resultArray.size - 1) append("\n\n")
+            val opersArray = comb.getJSONArray("opers")
+            val opers = if (opersArray != null && opersArray.isNotEmpty()) {
+                (0 until opersArray.size).mapNotNull { j ->
+                    val oper = opersArray.getJSONObject(j) ?: return@mapNotNull null
+                    val operName = oper.getString("name") ?: return@mapNotNull null
+                    val operLevel = oper.getIntValue("level")
+                    val localizedName =
+                        resourceDataManager.getLocalizedCharacterName(operName) ?: operName
+                    RecruitOper(starLevel = operLevel, name = localizedName)
+                }.sortedByDescending { it.starLevel }
+            } else {
+                emptyList()
             }
-        }.takeIf { it.isNotEmpty() }
+
+            RecruitCombination(starLevel = tagLevel, tags = tags, opers = opers)
+        }
+
+        return combos.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * 像素画进度写运行日志
+     * Core 每满 10 格报一次、每色收尾再报一次，最后一色画满即为完成
+     */
+    private fun logPixelPaintProgress(progress: PixelPaintProgress?) {
+        progress ?: return
+        if (progress.total > 0 && progress.done >= progress.total) {
+            append(resources.getString(R.string.pixel_art_log_done), LogLevel.SUCCESS)
+        } else {
+            append(
+                resources.getString(R.string.pixel_art_progress, progress.done, progress.total),
+                LogLevel.TRACE,
+            )
+        }
+    }
+
+    /**
+     * 材料合成日志
+     * Core 递归补齐下级材料，depth 从 0 起，展示时 +1；Failed 的 result 映射为原因文案
+     */
+    private fun logMaterialSynthesis(what: String, subDetails: JSONObject?) {
+        val material = subDetails?.getString("material").orEmpty()
+        when (what) {
+            "MaterialSynthesisStart" -> append(
+                resources.getString(R.string.material_synthesis_log_start), LogLevel.INFO
+            )
+
+            "MaterialSynthesisMaterial" -> append(
+                resources.getString(
+                    R.string.material_synthesis_log_material,
+                    material,
+                    subDetails?.getIntValue("count") ?: 0,
+                    (subDetails?.getIntValue("depth") ?: 0) + 1,
+                ),
+                LogLevel.INFO,
+            )
+
+            "MaterialSynthesisIngredient" -> append(
+                resources.getString(
+                    R.string.material_synthesis_log_ingredient,
+                    material,
+                    subDetails?.getIntValue("ingredient") ?: 0,
+                ),
+                LogLevel.INFO,
+            )
+
+            "MaterialSynthesisIngredientUnavailable" -> append(
+                resources.getString(
+                    R.string.material_synthesis_log_ingredient_unavailable,
+                    material,
+                    subDetails?.getIntValue("ingredient") ?: 0,
+                ),
+                LogLevel.WARNING,
+            )
+
+            "MaterialSynthesisOperator" -> append(
+                resources.getString(R.string.material_synthesis_log_operator, material),
+                LogLevel.INFO,
+            )
+
+            "MaterialSynthesisCraft" -> append(
+                resources.getString(
+                    R.string.material_synthesis_log_craft,
+                    material,
+                    subDetails?.getIntValue("count") ?: 0,
+                ),
+                LogLevel.INFO,
+            )
+
+            "MaterialSynthesisReturn" -> append(
+                resources.getString(R.string.material_synthesis_log_return, material),
+                LogLevel.INFO,
+            )
+
+            "MaterialSynthesisCompleted" -> append(
+                resources.getString(R.string.material_synthesis_log_done), LogLevel.SUCCESS
+            )
+
+            "MaterialSynthesisFailed" -> {
+                val reasonRes = when (subDetails?.getString("result")) {
+                    "insufficient_resources" -> R.string.material_synthesis_reason_insufficient_resources
+                    "operator_unavailable" -> R.string.material_synthesis_reason_operator_unavailable
+                    "unsupported" -> R.string.material_synthesis_reason_unsupported
+                    "navigation_failed" -> R.string.material_synthesis_reason_navigation_failed
+                    else -> R.string.material_synthesis_reason_unknown
+                }
+                append(
+                    resources.getString(
+                        R.string.material_synthesis_log_failed,
+                        resources.getString(reasonRes),
+                    ),
+                    LogLevel.ERROR,
+                )
+            }
+        }
+    }
+
+    // ==================== 黑流树海回调 ====================
+
+    private fun handleBlackFlowStrategyResult(subDetails: JSONObject?) {
+        val outcome = resources.getString(
+            BlackFlowLogText.outcome(subDetails?.getString("outcome"))
+        )
+        val reason = resources.getString(
+            BlackFlowLogText.terminationReason(subDetails?.getString("termination_reason"))
+        )
+        append(
+            resources.getString(R.string.blackflow_strategy_result, outcome, reason),
+            if (subDetails?.getBooleanValue("succeeded") == true) LogLevel.INFO else LogLevel.WARNING,
+        )
+    }
+
+    private fun handleBlackFlowRoutingDecision(subDetails: JSONObject?) {
+        val movement = resources.getString(
+            BlackFlowLogText.movement(subDetails?.getString("movement"))
+        )
+        // 节点有具名就用具名，没有才退回类型
+        val nodeName = subDetails?.getString("node_name")?.takeIf { it.isNotBlank() }
+            ?: resources.getString(BlackFlowLogText.nodeType(subDetails?.getString("node_type")))
+        val route = resources.getString(
+            R.string.blackflow_routing_decision,
+            subDetails?.getIntValue("floor") ?: 0,
+            subDetails?.getIntValue("action_points_before") ?: 0,
+            subDetails?.getIntValue("action_points_after") ?: 0,
+            movement,
+            nodeName,
+            subDetails?.getIntValue("safety_margin") ?: 0,
+        )
+        val category = resources.getString(
+            BlackFlowLogText.reasonCategory(subDetails?.getString("reason_category"))
+        )
+        val detail = blackFlowDecisionDetail(subDetails)
+        val reason = resources.getString(R.string.blackflow_routing_reason, category, detail)
+        append("$route\n$reason", LogLevel.INFO)
+    }
+
+    private fun blackFlowDecisionDetail(subDetails: JSONObject?): String {
+        subDetails?.getString("decisive_rule_id")?.takeIf { it.isNotBlank() }?.let { id ->
+            return BlackFlowLogText.rule(id)?.let { resources.getString(it) } ?: id
+        }
+        subDetails?.getString("decisive_milestone_id")?.takeIf { it.isNotBlank() }?.let { id ->
+            return BlackFlowLogText.milestone(id)?.let { resources.getString(it) } ?: id
+        }
+        return resources.getString(
+            BlackFlowLogText.reasonDetail(subDetails?.getString("reason_detail"))
+        )
+    }
+
+    private fun handleBlackFlowMilestoneChanged(subDetails: JSONObject?) {
+        val statusCode = subDetails?.getString("status")
+        // inactive 是纯状态位翻转，上游也不打日志
+        if (statusCode == "inactive") return
+        val id = subDetails?.getString("milestone_id").orEmpty()
+        val milestone = BlackFlowLogText.milestone(id)?.let { resources.getString(it) }
+            ?: id.takeIf { it.isNotBlank() }
+            ?: resources.getString(R.string.blackflow_milestone_unknown)
+        val status = resources.getString(BlackFlowLogText.milestoneStatus(statusCode))
+        append(
+            resources.getString(R.string.blackflow_milestone_changed, milestone, status),
+            LogLevel.INFO,
+        )
     }
 
     // ==================== 字符串资源辅助方法 ====================
+
+    /** core 回调 why -> 本地化文案，未收录的原样返回 */
+    private fun localizedWhy(why: String): String = when (why) {
+        "recognition error" -> str("IdentifyTheMistakes")
+        "refresh count reached the limit" -> str("RecruitRefreshLimitReached")
+        "UnknownStage" -> str("PenguinUploadUnknownStage")
+        "NotThreeStars" -> str("PenguinUploadNotThreeStars")
+        "UnknownTimes" -> str("PenguinUploadUnknownTimes")
+        "UnknownDropType" -> str("PenguinUploadUnknownDropType")
+        "UnknownDrops" -> str("PenguinUploadUnknownDrops")
+        else -> why
+    }
 
     private fun str(key: String): String = MaaStringRes.getString(resources, packageName, key)
 

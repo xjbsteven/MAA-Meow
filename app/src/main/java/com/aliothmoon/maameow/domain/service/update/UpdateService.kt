@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import com.aliothmoon.maameow.BuildConfig
+import com.aliothmoon.maameow.R
 import com.aliothmoon.maameow.constant.MaaFiles
 import com.aliothmoon.maameow.data.achievement.AchievementEvents
 import com.aliothmoon.maameow.data.achievement.AchievementRepository
@@ -27,13 +28,25 @@ import com.aliothmoon.maameow.data.model.update.UpdateError.MirrorchyanBizError
 import com.aliothmoon.maameow.data.model.update.UpdateProcessState
 import com.aliothmoon.maameow.data.model.update.UpdateSource
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
+import com.aliothmoon.maameow.domain.service.CoreDataPusher
 import com.aliothmoon.maameow.domain.service.update.checker.AppVersionChecker
 import com.aliothmoon.maameow.domain.service.update.checker.ResourceVersionChecker
 import com.aliothmoon.maameow.domain.service.update.resolver.AppDownloadUrlResolver
 import com.aliothmoon.maameow.domain.service.update.resolver.ResourceDownloadUrlResolver
+import com.aliothmoon.maameow.remote.CoreDataDir
+import com.aliothmoon.maameow.utils.i18n.LocalizedException
+import com.aliothmoon.maameow.utils.i18n.resolve
+import com.aliothmoon.maameow.utils.i18n.uiTextOf
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.job
 import timber.log.Timber
 import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
@@ -52,6 +65,7 @@ class UpdateService(
     private val resourceDownloader: ResourceDownloader,
     private val extractor: ZipExtractor,
     private val achievementRepository: AchievementRepository,
+    private val coreDataPusher: CoreDataPusher,
 ) {
     private val appDownloadResolvers: Map<UpdateSource, AppDownloadUrlResolver> = mapOf(
         UpdateSource.MIRROR_CHYAN to MirrorChyanAppDownloadUrlResolver(
@@ -72,6 +86,10 @@ class UpdateService(
     // ==================== App 更新 ====================
 
     private val appDownloading = AtomicBoolean(false)
+
+    @Volatile
+    private var appDownloadJob: Job? = null
+
     private val _appProcessState = MutableStateFlow<UpdateProcessState>(UpdateProcessState.Idle)
     val appProcessState: StateFlow<UpdateProcessState> = _appProcessState.asStateFlow()
 
@@ -87,6 +105,7 @@ class UpdateService(
         if (!appDownloading.compareAndSet(false, true)) {
             return Result.success(Unit)   // 已在进行中，幂等跳过
         }
+        appDownloadJob = currentCoroutineContext().job
         try {
             Timber.i(
                 "downloadApp start: source=%s, version=%s, channel=%s",
@@ -94,12 +113,26 @@ class UpdateService(
                 version,
                 channel
             )
-            _appProcessState.value = UpdateProcessState.Downloading(0, "准备下载...", 0L, 0L)
+            _appProcessState.value = UpdateProcessState.Downloading(
+                0,
+                context.getString(R.string.update_preparing_download),
+                0L,
+                0L
+            )
 
             val resolver = appDownloadResolvers[source]
-                ?: return failApp(UpdateError.UnknownError("不支持的下载源: $source"))
+                ?: return failApp(
+                    UpdateError.UnknownError(
+                        uiTextOf(
+                            R.string.update_error_unsupported_source,
+                            source
+                        )
+                    )
+                )
 
             val url = resolver.resolve(version, channel).getOrElse { e ->
+                // 解析器内部是 runCatching，取消也会落进 failure
+                currentCoroutineContext().ensureActive()
                 val error = mapToUpdateError(e)
                 _appProcessState.value = UpdateProcessState.Failed(error)
                 achievementRepository.report {
@@ -120,9 +153,20 @@ class UpdateService(
                 "version" to version
             }
             return result
+        } catch (e: CancellationException) {
+            // 取消不算失败，不弹错误弹窗也不上报成就
+            Timber.i("downloadApp canceled")
+            _appProcessState.value = UpdateProcessState.Idle
+            throw e
         } finally {
+            appDownloadJob = null
             appDownloading.set(false)
         }
+    }
+
+    /** 必须 join：不然紧接着换源重下会撞上 [appDownloading] 幂等门被静默跳过 */
+    suspend fun cancelAppDownload() {
+        appDownloadJob?.cancelAndJoin()
     }
 
     fun resetAppProcess() {
@@ -149,9 +193,12 @@ class UpdateService(
 
         val apkFile = downloadResult.getOrElse { e ->
             _appProcessState.value =
-                UpdateProcessState.Failed(UpdateError.NetworkError(e.message ?: "下载失败"))
+                UpdateProcessState.Failed(mapToUpdateError(e))
             return Result.failure(e)
         }
+
+        // 卡在「下完了还没装」的缝里被取消，别再弹安装界面
+        currentCoroutineContext().ensureActive()
 
         return doInstallApp(apkFile)
     }
@@ -165,7 +212,15 @@ class UpdateService(
         } catch (e: Exception) {
             Timber.e(e, "Failed to install APK")
             _appProcessState.value =
-                UpdateProcessState.Failed(UpdateError.UnknownError("安装失败: ${e.message}"))
+                UpdateProcessState.Failed(
+                    UpdateError.UnknownError(
+                        uiTextOf(
+                            R.string.update_error_install_failed,
+                            e.message?.takeIf { it.isNotBlank() }
+                                ?: context.getString(R.string.update_error_unknown)
+                        )
+                    )
+                )
             Result.failure(e)
         }
     }
@@ -186,12 +241,16 @@ class UpdateService(
 
     private fun failApp(error: UpdateError): Result<Unit> {
         _appProcessState.value = UpdateProcessState.Failed(error)
-        return Result.failure(Exception(error.message))
+        return Result.failure(Exception(error.text.resolve(context)))
     }
 
     // ==================== 资源更新 ====================
 
     private val resourceDownloading = AtomicBoolean(false)
+
+    @Volatile
+    private var resourceDownloadJob: Job? = null
+
     private val _resourceProcessState =
         MutableStateFlow<UpdateProcessState>(UpdateProcessState.Idle)
     val resourceProcessState: StateFlow<UpdateProcessState> = _resourceProcessState.asStateFlow()
@@ -208,14 +267,28 @@ class UpdateService(
         if (!resourceDownloading.compareAndSet(false, true)) {
             return Result.success(Unit)   // 已在进行中，幂等跳过
         }
+        resourceDownloadJob = currentCoroutineContext().job
         try {
             Timber.i("downloadResource start: source=%s", source)
-            _resourceProcessState.value = UpdateProcessState.Downloading(0, "准备下载...", 0L, 0L)
+            _resourceProcessState.value = UpdateProcessState.Downloading(
+                0,
+                context.getString(R.string.update_preparing_download),
+                0L,
+                0L
+            )
 
             val resolver = resourceDownloadResolvers[source]
-                ?: return failResource(UpdateError.UnknownError("不支持的下载源: $source"))
+                ?: return failResource(
+                    UpdateError.UnknownError(
+                        uiTextOf(
+                            R.string.update_error_unsupported_source,
+                            source
+                        )
+                    )
+                )
 
             val url = resolver.resolve(currentVersion).getOrElse { e ->
+                currentCoroutineContext().ensureActive()
                 val error = mapToUpdateError(e)
                 _resourceProcessState.value = UpdateProcessState.Failed(error)
                 achievementRepository.report {
@@ -239,9 +312,19 @@ class UpdateService(
                 "source" to source.name
             }
             return result
+        } catch (e: CancellationException) {
+            Timber.i("downloadResource canceled")
+            _resourceProcessState.value = UpdateProcessState.Idle
+            throw e
         } finally {
+            resourceDownloadJob = null
             resourceDownloading.set(false)
         }
+    }
+
+    /** 同 [cancelAppDownload] */
+    suspend fun cancelResourceDownload() {
+        resourceDownloadJob?.cancelAndJoin()
     }
 
     fun resetResourceProcess() {
@@ -260,8 +343,14 @@ class UpdateService(
 
         val tempFile = downloadResult.getOrElse { e ->
             _resourceProcessState.value =
-                UpdateProcessState.Failed(UpdateError.NetworkError(e.message ?: "下载失败"))
+                UpdateProcessState.Failed(mapToUpdateError(e))
             return Result.failure(e)
+        }
+
+        // 同理，取消卡在解压前就别再动资源目录
+        if (!currentCoroutineContext().isActive) {
+            tempFile.delete()
+            throw CancellationException("resource download canceled")
         }
 
         _resourceProcessState.value = UpdateProcessState.Extracting(0, 0, 0)
@@ -271,15 +360,7 @@ class UpdateService(
         val extractResult = extractor.extract(
             zipFile = tempFile,
             destDir = target,
-            pathFilter = { entryName ->
-                val name = entryName.removePrefix("MaaResource-main/")
-                if (name.startsWith("resource/")) {
-                    val rf = name.removePrefix("resource/")
-                    rf.ifEmpty { null }
-                } else {
-                    null
-                }
-            },
+            pathFilter = CoreDataDir::hotUpdateEntryToRelPath,
             onProgress = { progress ->
                 _resourceProcessState.value = UpdateProcessState.Extracting(
                     progress = progress.progress,
@@ -289,19 +370,28 @@ class UpdateService(
             }
         )
 
+        // 留档供独立目录投递
+        if (extractResult.isSuccess) {
+            val keep = File(target.parentFile, MaaFiles.LAST_RESOURCE_UPDATE_ZIP)
+            runCatching { if (!tempFile.renameTo(keep)) tempFile.copyTo(keep, overwrite = true) }
+                .onFailure { Timber.w(it, "keep last resource update zip failed") }
+        }
         tempFile.delete()
 
         return extractResult.fold(
             onSuccess = {
                 _resourceProcessState.value = UpdateProcessState.Success
                 Timber.i("Resource update completed")
+                coreDataPusher.pushHotUpdateIfNeeded()
                 Result.success(Unit)
             },
             onFailure = { e ->
                 // 解压中途失败时资源目录处于残缺状态，删除 version.json 让下次重新触发完整更新
                 File(target, MaaFiles.VERSION_FILE).delete()
                 _resourceProcessState.value =
-                    UpdateProcessState.Failed(UpdateError.UnknownError("解压失败"))
+                    UpdateProcessState.Failed(
+                        UpdateError.UnknownError(uiTextOf(R.string.update_error_extract_failed))
+                    )
                 Result.failure(e)
             }
         )
@@ -309,15 +399,16 @@ class UpdateService(
 
     private fun failResource(error: UpdateError): Result<Unit> {
         _resourceProcessState.value = UpdateProcessState.Failed(error)
-        return Result.failure(Exception(error.message))
+        return Result.failure(Exception(error.text.resolve(context)))
     }
 
     // ==================== 工具方法 ====================
 
     private fun mapToUpdateError(e: Throwable): UpdateError = when (e) {
         is CdkRequiredException -> UpdateError.CdkRequired
+        is LocalizedException -> UpdateError.UnknownError(e.uiText)
         is MirrorChyanBizException -> e.toUpdateError()
-        else -> UpdateError.NetworkError(e.message ?: "未知错误")
+        else -> UpdateError.NetworkError(e.message)
     }
 
     private fun updateAchievementPayload(

@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
-import com.aliothmoon.maameow.data.achievement.achievementText
+import com.aliothmoon.maameow.data.achievement.AchievementField
 import com.aliothmoon.maameow.presentation.components.InfoCard
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.viewmodel.AchievementEffect
@@ -68,6 +68,9 @@ fun AchievementDebugView(
                 AchievementEffect.Unlocked -> R.string.achievement_debug_unlock_done
                 AchievementEffect.UnlockedAll -> R.string.achievement_debug_unlock_all_done
                 AchievementEffect.Cleared -> R.string.achievement_debug_clear_done
+                AchievementEffect.PallasEnteredDebug,
+                AchievementEffect.PallasExitedDebug,
+                    -> return@collect
             }
             Toast.makeText(context, resId, Toast.LENGTH_SHORT).show()
         }
@@ -87,16 +90,17 @@ fun AchievementDebugView(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(
+                horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                vertical = MaaDesignTokens.Spacing.sm,
+            ),
+            verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.md),
         ) {
             item {
                 InfoCard(
-                    title = "",
                     contentColor = MaterialTheme.colorScheme.onSurface,
-                    contentPadding = PaddingValues(MaaDesignTokens.Card.innerPadding),
                 ) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(MaaDesignTokens.Spacing.md)) {
                         Text(
                             text = stringResource(R.string.achievement_debug_desc),
                             style = MaterialTheme.typography.bodyMedium,
@@ -132,7 +136,10 @@ fun AchievementDebugView(
                                     )
                                     Text(
                                         text = "${state.definition.id} - ${
-                                            context.achievementText(state.definition.id, "title")
+                                            achievementText(
+                                                state.definition.id,
+                                                AchievementField.TITLE
+                                            )
                                         }",
                                         style = MaterialTheme.typography.bodyMedium,
                                         maxLines = 1,

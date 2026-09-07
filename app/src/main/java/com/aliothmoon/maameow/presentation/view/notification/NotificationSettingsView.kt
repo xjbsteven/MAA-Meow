@@ -1,46 +1,50 @@
 package com.aliothmoon.maameow.presentation.view.notification
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.NavController
 import com.aliothmoon.maameow.R
+import com.aliothmoon.maameow.data.notification.WEBHOOK_PRESET_TEMPLATES
+import com.aliothmoon.maameow.data.notification.withWebhookPreset
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager
 import com.aliothmoon.maameow.data.preferences.AppSettingsManager.EventNotificationLevel
+import com.aliothmoon.maameow.domain.notification.LiveBackend
 import com.aliothmoon.maameow.domain.service.MaaEventNotifier
 import com.aliothmoon.maameow.presentation.components.ITextField
-import com.aliothmoon.maameow.presentation.components.InfoCard
+import com.aliothmoon.maameow.presentation.components.ListItemDivider
+import com.aliothmoon.maameow.presentation.components.SectionHeader
+import com.aliothmoon.maameow.presentation.components.SelectableChipGroup
+import com.aliothmoon.maameow.presentation.components.SettingRow
+import com.aliothmoon.maameow.presentation.components.SettingsGroupCard
 import com.aliothmoon.maameow.presentation.components.TopAppBar
 import com.aliothmoon.maameow.presentation.viewmodel.NotificationSettingsViewModel
+import com.aliothmoon.maameow.theme.MaaAnimatedVisibility
 import com.aliothmoon.maameow.theme.MaaDesignTokens
 import kotlinx.coroutines.launch
 import org.koin.androidx.compose.koinViewModel
@@ -51,6 +55,7 @@ private val PROVIDERS: List<Pair<String, Int>> = listOf(
     "Telegram" to R.string.notification_provider_telegram,
     "Discord" to R.string.notification_provider_discord,
     "DingTalk" to R.string.notification_provider_ding_talk,
+    "KOOK" to R.string.notification_provider_kook,
     "Discord Webhook" to R.string.notification_provider_discord_webhook,
     "SMTP" to R.string.notification_provider_smtp,
     "Bark" to R.string.notification_provider_bark,
@@ -61,7 +66,7 @@ private val PROVIDERS: List<Pair<String, Int>> = listOf(
 
 @Composable
 fun NotificationSettingsView(
-    viewModel: NotificationSettingsViewModel = koinViewModel()
+    navController: NavController, viewModel: NotificationSettingsViewModel = koinViewModel()
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val enabledProviders by viewModel.enabledProviders.collectAsStateWithLifecycle()
@@ -69,161 +74,271 @@ fun NotificationSettingsView(
     val sendOnError by viewModel.sendOnError.collectAsStateWithLifecycle()
     val sendOnServiceDied by viewModel.sendOnServiceDied.collectAsStateWithLifecycle()
     val includeLogDetails by viewModel.includeLogDetails.collectAsStateWithLifecycle()
+    val liveCapability by viewModel.liveCapability.collectAsStateWithLifecycle()
+    val liveIslandXmsfBypass by viewModel.liveIslandXmsfBypass.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.refreshLiveCapability()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     val appSettingsManager: AppSettingsManager = koinInject()
     val eventNotificationLevel by appSettingsManager.eventNotificationLevel.collectAsStateWithLifecycle()
     val coroutineScope = rememberCoroutineScope()
     val testMessage = stringResource(R.string.notification_test_message)
+    val liveTestTitle = stringResource(R.string.notification_live_test_title)
+    val liveTestText = stringResource(R.string.notification_live_test_text)
 
     Scaffold(
         topBar = {
-            TopAppBar(title = stringResource(R.string.notification_settings_title))
-        }
-    ) { paddingValues ->
-    val contentColor = MaterialTheme.colorScheme.onSurface
+            TopAppBar(
+                title = stringResource(R.string.notification_settings_title),
+                navigationIcon = Icons.AutoMirrored.Filled.ArrowBack,
+                onNavigationClick = { navController.navigateUp() })
+        }) { paddingValues ->
+        val contentColor = MaterialTheme.colorScheme.onSurface
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = paddingValues.calculateTopPadding()),
-        contentPadding = PaddingValues(MaaDesignTokens.Spacing.lg)
-    ) {
-        // 内部通知
-        item {
-            val isEnabled = eventNotificationLevel != EventNotificationLevel.OFF
-            SectionHeader(stringResource(R.string.notification_section_internal))
-            InfoCard(title = "") {
-                SwitchItem(
-                    title = stringResource(R.string.notification_enable),
-                    checked = isEnabled,
-                    contentColor = contentColor
-                ) { enabled ->
-                    coroutineScope.launch {
-                        appSettingsManager.setEventNotificationLevel(
-                            if (enabled) EventNotificationLevel.DEFAULT else EventNotificationLevel.OFF
-                        )
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = paddingValues.calculateTopPadding()),
+            contentPadding = PaddingValues(
+                horizontal = MaaDesignTokens.Spacing.listHorizontal,
+                vertical = MaaDesignTokens.Spacing.sm
+            )
+        ) {
+            item {
+                SectionHeader(stringResource(R.string.notification_section_live))
+                SettingsGroupCard {
+                    val styleLabel = when (liveCapability.backend) {
+                        LiveBackend.HYPER_OS_FOCUS ->
+                            stringResource(R.string.notification_live_style_hyperos)
+
+                        LiveBackend.AOSP_PROMOTED ->
+                            stringResource(R.string.notification_live_style_aosp)
+
+                        LiveBackend.PLAIN ->
+                            stringResource(R.string.notification_live_style_plain)
                     }
-                }
-                AnimatedVisibility(visible = isEnabled) {
-                    Column {
-                        SettingsDivider(contentColor)
-                        SwitchItem(
-                            title = stringResource(R.string.notification_popup),
-                            checked = eventNotificationLevel == EventNotificationLevel.HIGH,
-                            contentColor = contentColor
-                        ) { popup ->
-                            coroutineScope.launch {
-                                appSettingsManager.setEventNotificationLevel(
-                                    if (popup) EventNotificationLevel.HIGH else EventNotificationLevel.DEFAULT
+                    SettingRow(
+                        title = stringResource(R.string.notification_live_style),
+                        description = styleLabel,
+                        titleColor = contentColor,
+                    )
+                    // 授权行只在缺权限时出现，已授权时没有可操作性
+                    if (!liveCapability.postNotifications) {
+                        ListItemDivider()
+                        PermissionFixRow(
+                            title = stringResource(R.string.notification_live_step_post),
+                            hint = stringResource(R.string.notification_live_step_post_missing),
+                            titleColor = contentColor,
+                        ) {
+                            viewModel.requestPostNotifications(context)
+                        }
+                    }
+                    if (liveCapability.focusLikely) {
+                        ListItemDivider()
+                        // 断网旁路会波及全机小米推送，给用户留个开关
+                        SettingRow(
+                            title = stringResource(R.string.notification_live_xmsf_bypass),
+                            titleColor = contentColor,
+                            trailing = {
+                                Switch(
+                                    checked = liveIslandXmsfBypass,
+                                    onCheckedChange = viewModel::setLiveIslandXmsfBypass,
                                 )
+                            },
+                        )
+                        if (!liveCapability.focusGranted) {
+                            ListItemDivider()
+                            PermissionFixRow(
+                                title = stringResource(R.string.notification_live_step_focus),
+                                hint = stringResource(R.string.notification_live_step_focus_missing),
+                                titleColor = contentColor,
+                            ) {
+                                viewModel.openAppNotificationSettings(context)
                             }
                         }
-                        SettingsDivider(contentColor)
-                        val eventNotifier: MaaEventNotifier = koinInject()
-                        Button(
-                            onClick = {
-                                eventNotifier.notifyAllTasksCompleted(testMessage)
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = MaaDesignTokens.Spacing.sm),
-                            shape = MaterialTheme.shapes.small,
-                            contentPadding = ButtonDefaults.ContentPadding
+                    }
+                    if (liveCapability.promotedAvailable && !liveCapability.promotedGranted) {
+                        ListItemDivider()
+                        PermissionFixRow(
+                            title = stringResource(R.string.notification_live_step_promoted),
+                            hint = stringResource(R.string.notification_live_step_promoted_missing),
+                            titleColor = contentColor,
                         ) {
-                            Text(stringResource(R.string.notification_send_test))
+                            viewModel.openPromotedSettings(context)
                         }
                     }
-                }
-            }
-        }
-
-        // 外部通知 - 触发条件
-        item {
-            Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
-            SectionHeader(stringResource(R.string.notification_section_external))
-            InfoCard(title = "") {
-                SwitchItem(stringResource(R.string.notification_send_on_complete), sendOnComplete, contentColor) {
-                    viewModel.updateSettings { copy(sendOnComplete = it.toString()) }
-                }
-                SettingsDivider(contentColor)
-                SwitchItem(stringResource(R.string.notification_send_on_error), sendOnError, contentColor) {
-                    viewModel.updateSettings { copy(sendOnError = it.toString()) }
-                }
-                SettingsDivider(contentColor)
-                SwitchItem(stringResource(R.string.notification_send_on_service_died), sendOnServiceDied, contentColor) {
-                    viewModel.updateSettings { copy(sendOnServiceDied = it.toString()) }
-                }
-                SettingsDivider(contentColor)
-                SwitchItem(stringResource(R.string.notification_include_log_details), includeLogDetails, contentColor) {
-                    viewModel.updateSettings { copy(includeLogDetails = it.toString()) }
-                }
-            }
-        }
-
-        // 通知渠道
-        item {
-            Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
-            SectionHeader(stringResource(R.string.notification_section_channels))
-        }
-
-        PROVIDERS.forEach { (id, displayNameRes) ->
-            item(key = id) {
-                val enabled = id in enabledProviders
-                Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
-                InfoCard(
-                    title = "",
-                    contentPadding = PaddingValues(MaaDesignTokens.Spacing.md)
-                ) {
-                    Row(
+                    ListItemDivider()
+                    Button(
+                        onClick = {
+                            viewModel.sendLiveTest(liveTestTitle, liveTestText)
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = MaaDesignTokens.Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically
-                        ) {
-                        Text(
-                            text = stringResource(displayNameRes),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = contentColor,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Switch(
-                            checked = enabled,
-                            onCheckedChange = {
-                                viewModel.toggleProvider(id, it)
-                            }
-                        )
+                            .padding(vertical = MaaDesignTokens.Spacing.listItemVertical),
+                        shape = MaterialTheme.shapes.small,
+                        contentPadding = ButtonDefaults.ContentPadding,
+                    ) {
+                        Text(stringResource(R.string.notification_live_send_test))
                     }
-                    AnimatedVisibility(visible = enabled) {
-                        Column(modifier = Modifier.padding(top = MaaDesignTokens.Spacing.sm)) {
-                            SettingsDivider(contentColor)
-                            Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
-                            ProviderConfig(id, settings, viewModel)
+                }
+            }
+
+            item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
+            }
+
+            // 内部通知
+            item {
+                val isEnabled = eventNotificationLevel != EventNotificationLevel.OFF
+                SectionHeader(stringResource(R.string.notification_section_internal))
+                SettingsGroupCard {
+                    SwitchItem(
+                        title = stringResource(R.string.notification_enable),
+                        checked = isEnabled,
+                        contentColor = contentColor
+                    ) { enabled ->
+                        coroutineScope.launch {
+                            appSettingsManager.setEventNotificationLevel(
+                                if (enabled) EventNotificationLevel.DEFAULT else EventNotificationLevel.OFF
+                            )
+                        }
+                    }
+                    MaaAnimatedVisibility(visible = isEnabled) {
+                        Column {
+                            ListItemDivider()
+                            SwitchItem(
+                                title = stringResource(R.string.notification_popup),
+                                checked = eventNotificationLevel == EventNotificationLevel.HIGH,
+                                contentColor = contentColor
+                            ) { popup ->
+                                coroutineScope.launch {
+                                    appSettingsManager.setEventNotificationLevel(
+                                        if (popup) EventNotificationLevel.HIGH else EventNotificationLevel.DEFAULT
+                                    )
+                                }
+                            }
+                            ListItemDivider()
+                            val eventNotifier: MaaEventNotifier = koinInject()
+                            Button(
+                                onClick = {
+                                    eventNotifier.notifyAllTasksCompleted(testMessage)
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = MaaDesignTokens.Spacing.listItemVertical),
+                                shape = MaterialTheme.shapes.small,
+                                contentPadding = ButtonDefaults.ContentPadding
+                            ) {
+                                Text(stringResource(R.string.notification_send_test))
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // 测试
-        item {
-            Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
-            SectionHeader(stringResource(R.string.notification_section_test))
-            InfoCard(title = "") {
-                Button(
-                    onClick = { viewModel.sendTest() },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = enabledProviders.isNotEmpty(),
-                    shape = MaterialTheme.shapes.small,
-                    contentPadding = ButtonDefaults.ContentPadding
-                ) {
-                    Text(stringResource(R.string.notification_send_test))
+            // 外部通知 - 触发条件
+            item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
+                SectionHeader(stringResource(R.string.notification_section_external))
+                SettingsGroupCard {
+                    SwitchItem(
+                        stringResource(R.string.notification_send_on_complete),
+                        sendOnComplete,
+                        contentColor
+                    ) {
+                        viewModel.updateSettings { copy(sendOnComplete = it.toString()) }
+                    }
+                    ListItemDivider()
+                    SwitchItem(
+                        stringResource(R.string.notification_send_on_error),
+                        sendOnError,
+                        contentColor
+                    ) {
+                        viewModel.updateSettings { copy(sendOnError = it.toString()) }
+                    }
+                    ListItemDivider()
+                    SwitchItem(
+                        stringResource(R.string.notification_send_on_service_died),
+                        sendOnServiceDied,
+                        contentColor
+                    ) {
+                        viewModel.updateSettings { copy(sendOnServiceDied = it.toString()) }
+                    }
+                    ListItemDivider()
+                    SwitchItem(
+                        stringResource(R.string.notification_include_log_details),
+                        includeLogDetails,
+                        contentColor
+                    ) {
+                        viewModel.updateSettings { copy(includeLogDetails = it.toString()) }
+                    }
                 }
             }
-        }
 
-        // 底部留白
-        item { Spacer(Modifier.height(MaaDesignTokens.Spacing.xxl)) }
-    }
+            // 通知渠道
+            item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
+                SectionHeader(stringResource(R.string.notification_section_channels))
+            }
+
+            PROVIDERS.forEach { (id, displayNameRes) ->
+                item(key = id) {
+                    val enabled = id in enabledProviders
+                    Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
+                    SettingsGroupCard {
+                        SettingRow(
+                            title = stringResource(displayNameRes),
+                            titleColor = contentColor,
+                            trailing = {
+                                Switch(
+                                    checked = enabled,
+                                    onCheckedChange = { viewModel.toggleProvider(id, it) },
+                                )
+                            },
+                        )
+                        MaaAnimatedVisibility(visible = enabled) {
+                            Column(modifier = Modifier.padding(top = MaaDesignTokens.Spacing.sm)) {
+                                ListItemDivider()
+                                Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
+                                ProviderConfig(id, settings, viewModel)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 测试
+            item {
+                Spacer(Modifier.height(MaaDesignTokens.Spacing.sectionGap))
+                SectionHeader(stringResource(R.string.notification_section_test))
+                val testTitle = stringResource(R.string.notification_test_title)
+                val testContent = stringResource(R.string.notification_test_message_full)
+                SettingsGroupCard {
+                    Button(
+                        onClick = { viewModel.sendTest(testTitle, testContent) },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = enabledProviders.isNotEmpty(),
+                        shape = MaterialTheme.shapes.small,
+                        contentPadding = ButtonDefaults.ContentPadding
+                    ) {
+                        Text(stringResource(R.string.notification_send_test))
+                    }
+                }
+            }
+
+            // 底部留白
+            item { Spacer(Modifier.height(MaaDesignTokens.Spacing.xxl)) }
+        }
     }
 }
 
@@ -310,6 +425,27 @@ private fun ProviderConfig(
             )
         }
 
+        "KOOK" -> {
+            ITextField(
+                value = settings.kookBotToken,
+                onValueChange = { viewModel.updateSettings { copy(kookBotToken = it) } },
+                label = stringResource(R.string.notification_label_bot_token)
+            )
+            Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
+            ITextField(
+                value = settings.kookTargetId,
+                onValueChange = { viewModel.updateSettings { copy(kookTargetId = it) } },
+                label = stringResource(R.string.notification_label_kook_target_id),
+                placeholder = stringResource(R.string.notification_placeholder_kook_target_id)
+            )
+            Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
+            SwitchItem(
+                title = stringResource(R.string.notification_kook_direct_message),
+                checked = settings.kookDirectMessage.toBooleanStrictOrNull() ?: false,
+                contentColor = contentColor,
+                onCheckedChange = { viewModel.updateSettings { copy(kookDirectMessage = it.toString()) } })
+        }
+
         "Discord Webhook" -> {
             ITextField(
                 value = settings.discordWebhookUrl,
@@ -338,15 +474,13 @@ private fun ProviderConfig(
                 title = stringResource(R.string.notification_use_ssl),
                 checked = settings.smtpUseSsl.toBooleanStrictOrNull() ?: false,
                 contentColor = contentColor,
-                onCheckedChange = { viewModel.updateSettings { copy(smtpUseSsl = it.toString()) } }
-            )
-            SettingsDivider(contentColor)
+                onCheckedChange = { viewModel.updateSettings { copy(smtpUseSsl = it.toString()) } })
+            ListItemDivider()
             SwitchItem(
                 title = stringResource(R.string.notification_requires_auth),
                 checked = settings.smtpRequireAuthentication.toBooleanStrictOrNull() ?: false,
                 contentColor = contentColor,
-                onCheckedChange = { viewModel.updateSettings { copy(smtpRequireAuthentication = it.toString()) } }
-            )
+                onCheckedChange = { viewModel.updateSettings { copy(smtpRequireAuthentication = it.toString()) } })
             Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
             ITextField(
                 value = settings.smtpUser,
@@ -421,6 +555,11 @@ private fun ProviderConfig(
         }
 
         "CustomWebhook" -> {
+            WebhookPresetSelector(
+                selectedId = settings.customWebhookPresetId,
+                onSelected = { id -> viewModel.updateSettings { withWebhookPreset(id) } },
+            )
+            Spacer(Modifier.height(MaaDesignTokens.Spacing.sm))
             ITextField(
                 value = settings.customWebhookUrl,
                 onValueChange = { viewModel.updateSettings { copy(customWebhookUrl = it) } },
@@ -454,46 +593,49 @@ private fun ProviderConfig(
 }
 
 @Composable
-private fun SectionHeader(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(
-            start = MaaDesignTokens.Spacing.xs,
-            bottom = MaaDesignTokens.Spacing.sm
-        )
-    )
-}
-
-@Composable
 private fun SwitchItem(
-    title: String,
-    checked: Boolean,
-    contentColor: Color,
-    onCheckedChange: (Boolean) -> Unit
+    title: String, checked: Boolean, contentColor: Color, onCheckedChange: (Boolean) -> Unit
 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = MaaDesignTokens.Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            color = contentColor,
-            modifier = Modifier.weight(1f)
-        )
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
-    }
-}
-
-@Composable
-private fun SettingsDivider(contentColor: Color) {
-    HorizontalDivider(
-        modifier = Modifier.padding(start = MaaDesignTokens.Separator.inset),
-        thickness = MaaDesignTokens.Separator.thickness,
-        color = contentColor.copy(alpha = 0.12f)
+    SettingRow(
+        title = title,
+        titleColor = contentColor,
+        trailing = {
+            Switch(checked = checked, onCheckedChange = onCheckedChange)
+        },
     )
 }
+
+/** 缺权限时才渲染，点按跳到对应设置页 */
+@Composable
+private fun PermissionFixRow(
+    title: String,
+    hint: String,
+    titleColor: Color,
+    onFix: () -> Unit,
+) {
+    SettingRow(
+        title = title,
+        description = hint,
+        titleColor = titleColor,
+        onClick = onFix,
+    )
+}
+
+// 已选中项不重放，避免覆盖用户已改的字段
+@Composable
+private fun WebhookPresetSelector(
+    selectedId: String,
+    onSelected: (String) -> Unit,
+) {
+    val options = ArrayList<Pair<String, String>>(WEBHOOK_PRESET_TEMPLATES.size)
+    for (template in WEBHOOK_PRESET_TEMPLATES) {
+        options.add(template.id to stringResource(template.labelRes))
+    }
+    SelectableChipGroup(
+        label = stringResource(R.string.notification_webhook_preset_label),
+        selectedValue = selectedId,
+        options = options,
+        onSelected = { id -> if (id != selectedId) onSelected(id) },
+    )
+}
+

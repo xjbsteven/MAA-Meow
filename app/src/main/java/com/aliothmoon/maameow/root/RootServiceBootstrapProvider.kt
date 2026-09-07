@@ -6,7 +6,6 @@ import android.database.Cursor
 import android.net.Uri
 import android.os.Binder
 import android.os.Bundle
-import android.os.IBinder
 import android.os.Process
 import timber.log.Timber
 
@@ -36,6 +35,7 @@ class RootServiceBootstrapProvider : ContentProvider() {
 
         return Bundle().apply {
             putBinder(RootServiceBootstrapRegistry.KEY_APP_BINDER, appBinder)
+            putInt(RootServiceBootstrapRegistry.KEY_APP_PID, Process.myPid())
         }
     }
 

@@ -1,7 +1,6 @@
 package com.aliothmoon.maameow.data.config
 
 import android.content.Context
-import com.alibaba.fastjson2.JSON
 import com.aliothmoon.maameow.constant.MaaFiles.APP_VERSION_FILE
 import com.aliothmoon.maameow.constant.MaaFiles.ASSET_VERSION_FILE
 import com.aliothmoon.maameow.constant.MaaFiles.CACHE
@@ -11,15 +10,51 @@ import com.aliothmoon.maameow.constant.MaaFiles.OVERRIDES
 import com.aliothmoon.maameow.constant.MaaFiles.RESOURCE
 import com.aliothmoon.maameow.constant.MaaFiles.SCREENSHOTS
 import com.aliothmoon.maameow.constant.MaaFiles.VERSION_FILE
+import com.aliothmoon.maameow.data.preferences.AppSettingsManager
+import com.aliothmoon.maameow.domain.models.CoreDataLocation
+import com.aliothmoon.maameow.remote.CoreDataDir
+import com.aliothmoon.maameow.remote.ResourceFiles
 import timber.log.Timber
 import java.io.File
 
-class MaaPathConfig(private val context: Context) {
+class MaaPathConfig(
+    private val context: Context,
+    private val appSettings: AppSettingsManager,
+) {
 
+    companion object {
+        fun toCorePath(path: String, appRoot: String, coreRoot: String): String = when {
+            path == appRoot -> coreRoot
+            path.startsWith(appRoot + File.separator) -> coreRoot + path.substring(appRoot.length)
+            else -> path
+        }
+    }
+
+    /** 进程内固定；改了设置要重启（MaaCore 状态本就不可回滚） */
+    val coreLocation: CoreDataLocation by lazy { appSettings.coreDataLocation.value }
+
+    /** core 在 /data/local/tmp，App 读不到 */
+    val isCoreSeparated: Boolean
+        get() = coreLocation == CoreDataLocation.LOCAL_TMP
+
+    val coreRootDir: String
+        get() = if (isCoreSeparated) CoreDataDir.ROOT else rootDir
+
+    /** core 侧 debug/，asst.log / logcat / 截图落这里 */
+    val coreDebugDir: String
+        get() = File(coreRootDir, DEBUG).absolutePath
+
+    val coreDebugScreenshotsDir: String
+        get() = File(coreDebugDir, SCREENSHOTS).absolutePath
+
+    fun toCorePath(path: String): String =
+        if (isCoreSeparated) toCorePath(path, rootDir, CoreDataDir.ROOT) else path
 
     /** Maa 根目录 */
     val rootDir: String by lazy {
-        File(context.getExternalFilesDir(null), MAA).absolutePath
+        val ext = context.getExternalFilesDir(null)
+        Timber.i("context.getExternalFilesDir $ext")
+        File(ext, MAA).absolutePath
     }
 
     /** 资源目录 */
@@ -85,9 +120,7 @@ class MaaPathConfig(private val context: Context) {
 
     private val bundledResourceVersion: String? by lazy {
         try {
-            context.assets.open(ASSET_VERSION_FILE).bufferedReader().use { reader ->
-                JSON.parseObject(reader.readText())?.getString("last_updated")
-            }
+            context.assets.open(ASSET_VERSION_FILE).bufferedReader().use { ResourceFiles.readLastUpdated(it.readText()) }
         } catch (e: Exception) {
             Timber.w(e, "读取内置资源版本失败")
             null
@@ -106,33 +139,24 @@ class MaaPathConfig(private val context: Context) {
         return ResourceVersionHelper.compareVersions(bundled, disk) > 0
     }
 
-    private fun readDiskResourceVersion(): String? {
-        return try {
-            val file = versionFile
-            if (!file.exists()) return null
-            JSON.parseObject(file.readText())?.getString("last_updated")
-        } catch (e: Exception) {
-            Timber.w(e, "读取磁盘资源版本失败")
-            null
-        }
-    }
+    /** 磁盘资源版本戳（version.json 的 last_updated），缺失或解析失败为 null */
+    fun readDiskResourceVersion(): String? = ResourceFiles.readLastUpdated(versionFile)
 
     private fun isAppVersionCurrent(): Boolean {
         val file = File(rootDir, APP_VERSION_FILE)
         if (!file.exists()) return false
         return try {
-            file.readText().trim().toLong() == getAppVersionCode()
+            file.readText().trim().toLong() == appVersionCode
         } catch (_: Exception) {
             false
         }
     }
 
-    private fun getAppVersionCode(): Long {
-        return context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
-    }
+    val appVersionCode: Long
+        get() = context.packageManager.getPackageInfo(context.packageName, 0).longVersionCode
 
     fun markAppVersion() {
-        File(rootDir, APP_VERSION_FILE).writeText(getAppVersionCode().toString())
+        File(rootDir, APP_VERSION_FILE).writeText(appVersionCode.toString())
     }
 
     fun ensureDirectories(): Boolean {
