@@ -13,6 +13,11 @@ plugins {
     id("com.aliothmoon.maameow.i18n-verify")
 }
 
+val verifyFixedCore = tasks.register<Exec>("verifyFixedCore") {
+    commandLine("python3", rootProject.file("scripts/verify_fixed_custom_core.py"))
+}
+tasks.matching { it.name.startsWith("preBuild") }.configureEach { dependsOn(verifyFixedCore) }
+
 val localProperties = Properties().apply {
     val localPropertiesFile = rootProject.file("local.properties")
     if (localPropertiesFile.exists()) {
@@ -79,8 +84,8 @@ android {
         applicationId = "com.aliothmoon.maameow"
         minSdk = 28
         targetSdk = 36
-        versionCode = gitVersionCode
-        versionName = gitVersionName
+        versionCode = (findProperty("maa.customVersionCode") as String?)?.toIntOrNull() ?: gitVersionCode
+        versionName = (findProperty("maa.customVersionName") as String?) ?: "$gitVersionName-custom.11feb567ab"
         println("Build version: versionCode=$versionCode, versionName=$versionName")
         ndkVersion = "29.0.13113456"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

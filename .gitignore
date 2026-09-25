@@ -50,3 +50,6 @@ __pycache__/
 .pi/
 tmp.txt
 .cache/
+
+# Fixed custom Core resource identity generated during local deployment
+.maa-resource-identity.json

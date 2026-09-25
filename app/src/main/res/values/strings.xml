@@ -2662,4 +2662,23 @@ MAA 不会因为取消勾选此选项而提前在局内结束探索</string>
     <string name="panel_switch_theme_candidate">候选主题 %1$d</string>
     <string name="panel_switch_theme_add">添加候选主题</string>
     <string name="panel_switch_theme_remove">移除候选主题 %1$d</string>
+    <string name="panel_recruit_minimum_times_title">最低招募数量</string>
+    <string name="panel_recruit_minimum_times_tip">正常情况下仍按照星级、词条、刷新和其他公招规则执行。仅当剩余可用槽位不足以保证最低招募数量时，才允许确认原本因普通 3/4 星规则跳过的招募。保留词条、5/6 星保护及 3 星招聘许可保留仍具有更高优先级。</string>
+    <string name="panel_infrast_rotation_style_title">轮换方式</string>
+    <string name="panel_infrast_rotation_style_game">游戏内一键轮换</string>
+    <string name="panel_infrast_rotation_style_station_preset">进驻总览设施点预设</string>
+    <string name="panel_infrast_rotation_station_preset_tip">在「进驻总览」页按所选设施点击右侧预设切换按钮，不会进入干员选择页。\n多班次请添加多个基建任务，每个任务配置一个班次。</string>
+    <string name="panel_infrast_station_preset_layout_title">基建布局</string>
+    <string name="panel_infrast_station_preset_rooms_title">本次切换设施</string>
+    <string name="panel_infrast_station_preset_select_all">全选</string>
+    <string name="panel_infrast_station_preset_clear_all">清空</string>
+    <string name="panel_infrast_station_preset_multi_shift_tip">多班次请添加多个基建任务，每个任务配置一个班次。</string>
+    <string name="panel_infrast_station_preset_rest">切换后干员休整</string>
+    <string name="panel_infrast_station_preset_use_drones">使用无人机</string>
+    <string name="panel_infrast_station_preset_drone_room">无人机设施</string>
+    <string name="panel_infrast_station_preset_drone_index">设施序号</string>
+    <string name="panel_infrast_station_preset_drone_order">使用时机</string>
+    <string name="panel_infrast_station_preset_drone_order_pre">换班前</string>
+    <string name="panel_infrast_station_preset_drone_order_post">换班后</string>
+    <string name="panel_infrast_reception_receive_clue">会客室接收线索</string>
 </resources>

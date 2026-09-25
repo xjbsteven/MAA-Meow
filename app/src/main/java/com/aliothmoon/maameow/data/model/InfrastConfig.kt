@@ -1,6 +1,7 @@
 package com.aliothmoon.maameow.data.model
 
 
+import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.domain.enums.InfrastMode
 import com.aliothmoon.maameow.domain.enums.InfrastRoomType
 import com.aliothmoon.maameow.domain.enums.UiUsageConstants
@@ -41,6 +42,11 @@ data class InfrastConfig(
      * - "Rotation": 队列轮换模式
      */
     val mode: InfrastMode = InfrastMode.Normal,
+    val rotationStyle: InfrastRotationStyle = InfrastRotationStyle.Game,
+    val presetLayout: StationPresetLayout = StationPresetLayout(),
+    val presetSelectedRooms: List<String> = StationPresetRoomList.defaultSelection(StationPresetLayout()),
+    val presetRest: Boolean = true,
+    val stationPresetDrones: StationPresetDrones = StationPresetDrones(),
 
     // ============ 自定义基建配置（Custom 模式） ============
 
@@ -156,6 +162,7 @@ data class InfrastConfig(
      * 启用后，会在会客室领取留言板的信用点
      */
     val receptionMessageBoard: Boolean = true,
+    val receptionReceiveClue: Boolean = true,
 
     /**
      * 会客室线索交流
@@ -230,9 +237,27 @@ data class InfrastConfig(
     val customPlanNames: List<String> = emptyList()
 ) : TaskParamProvider {
 
+    fun usesRotationStationPreset(): Boolean = mode == InfrastMode.Rotation && rotationStyle == InfrastRotationStyle.StationPreset
+
     override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
         val threshold = dormThreshold / 100.0
+        val usesStationPreset = mode == InfrastMode.Rotation && rotationStyle == InfrastRotationStyle.StationPreset
         val paramsJson = buildJsonObject {
+            if (usesStationPreset) {
+                put("facility", buildJsonArray { add(JsonPrimitive("Mfg")) })
+                put("preset", buildJsonObject {
+                    put("rooms", buildJsonArray {
+                        StationPresetRoomList.pruneSelection(presetSelectedRooms, presetLayout).forEach { add(JsonPrimitive(it)) }
+                    })
+                    put("rest", presetRest)
+                })
+                if (stationPresetDrones.enable) put("drones", buildJsonObject {
+                    put("enable", true)
+                    put("room", stationPresetDrones.room.apiValue)
+                    put("index", stationPresetDrones.index)
+                    put("order", stationPresetDrones.order.apiValue)
+                })
+            } else {
             put("facility", buildJsonArray {
                 normalizedFacilities().filter { it.second }
                     .map { it.first.name }
@@ -241,16 +266,18 @@ data class InfrastConfig(
                     }
             })
             put("drones", usesOfDrones)
+            }
             put("continue_training", continueTraining)
             put("threshold", threshold)
             put("dorm_notstationed_enabled", dormFilterNotStationedEnabled)
             put("dorm_trust_enabled", dormTrustEnabled)
             put("replenish", originiumShardAutoReplenishment)
             put("reception_message_board", receptionMessageBoard)
+            put("reception_receive_clue", receptionReceiveClue)
             put("reception_clue_exchange", receptionClueExchange)
             put("reception_send_clue", receptionSendClue)
             // 始终下发，非 Normal 模式由 core 忽略
-            put("fiammetta_recovery_enabled", fiammettaRecoveryEnabled)
+            put("fiammetta_recovery_enabled", (mode == InfrastMode.Normal || usesStationPreset) && fiammettaRecoveryEnabled)
             put("fiammetta_targets", buildJsonArray {
                 fiammettaTargets
                     .filter { it.isNotBlank() }
@@ -258,11 +285,12 @@ data class InfrastConfig(
                     .take(UiUsageConstants.MAX_FIAMMETTA_TARGETS)
                     .forEach { add(JsonPrimitive(it)) }
             })
-            put("use_pinus_sylvestris", usePinusSylvestris)
-            put("use_perception_information", usePerceptionInformation)
-            put("use_worldly_plight", useWorldlyPlight)
-            put("use_abyssal_hunter", useAbyssalHunter)
+            put("use_pinus_sylvestris", mode == InfrastMode.Normal && usePinusSylvestris)
+            put("use_perception_information", mode == InfrastMode.Normal && usePerceptionInformation)
+            put("use_worldly_plight", mode == InfrastMode.Normal && useWorldlyPlight)
+            put("use_abyssal_hunter", mode == InfrastMode.Normal && useAbyssalHunter)
             put("mode", mode.value)
+            if (mode == InfrastMode.Rotation) put("rotation_style", rotationStyle.value)
             if (mode == InfrastMode.Custom) {
                 put("filename", ctx.relocatePath(customInfrastFile))
                 put("plan_index", resolveCustomPlanIndex(customInfrastFile))

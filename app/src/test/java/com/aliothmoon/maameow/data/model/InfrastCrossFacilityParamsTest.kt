@@ -38,12 +38,17 @@ class InfrastCrossFacilityParamsTest {
     }
 
     @Test
-    fun fiammettaRecoveryEnabled_isEmittedRegardlessOfMode() {
+    fun fiammettaRecoveryEnabled_onlyForNormalAndStationPreset() {
         val config = InfrastConfig(fiammettaRecoveryEnabled = true)
-        com.aliothmoon.maameow.domain.enums.InfrastMode.entries.forEach { mode ->
-            val json = paramsOf(config.copy(mode = mode))
-            assertTrue("$mode", json.getValue("fiammetta_recovery_enabled").jsonPrimitive.boolean)
-        }
+        val normal = paramsOf(config)
+        assertTrue(normal.getValue("fiammetta_recovery_enabled").jsonPrimitive.boolean)
+        val game = paramsOf(config.copy(mode = com.aliothmoon.maameow.domain.enums.InfrastMode.Rotation))
+        assertFalse(game.getValue("fiammetta_recovery_enabled").jsonPrimitive.boolean)
+        val preset = paramsOf(config.copy(
+            mode = com.aliothmoon.maameow.domain.enums.InfrastMode.Rotation,
+            rotationStyle = com.aliothmoon.maameow.domain.enums.InfrastRotationStyle.StationPreset,
+        ))
+        assertTrue(preset.getValue("fiammetta_recovery_enabled").jsonPrimitive.boolean)
     }
 
     @Test
@@ -70,19 +75,17 @@ class InfrastCrossFacilityParamsTest {
     }
 
     @Test
-    fun crossFacilityFlags_areEmittedRegardlessOfMode() {
+    fun crossFacilityFlags_areDisabledInStationPreset() {
         val config = InfrastConfig(
+            mode = com.aliothmoon.maameow.domain.enums.InfrastMode.Rotation,
+            rotationStyle = com.aliothmoon.maameow.domain.enums.InfrastRotationStyle.StationPreset,
             usePinusSylvestris = true,
             usePerceptionInformation = true,
             useWorldlyPlight = true,
             useAbyssalHunter = true,
         )
-        com.aliothmoon.maameow.domain.enums.InfrastMode.entries.forEach { mode ->
-            val json = paramsOf(config.copy(mode = mode))
-            crossFacilityKeys.forEach { key ->
-                assertTrue("$mode/$key", json.getValue(key).jsonPrimitive.boolean)
-            }
-        }
+        val json = paramsOf(config)
+        crossFacilityKeys.forEach { key -> assertFalse(key, json.getValue(key).jsonPrimitive.boolean) }
     }
 
     @Test

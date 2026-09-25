@@ -137,6 +137,9 @@ fun RecruitConfigPanel(
                             Spacer(modifier = Modifier.height(4.dp))
                             RecruitMaxTimesSection(config, onConfigChange)
                         }
+                        item {
+                            RecruitMinimumTimesSection(config, onConfigChange)
+                        }
                     }
 
                     else -> {
@@ -235,7 +238,7 @@ private fun RecruitMaxTimesSection(
 
         INumericField(
             value = config.maxRecruitTimes,
-            onValueChange = { onConfigChange(config.copy(maxRecruitTimes = it)) },
+            onValueChange = { onConfigChange(config.copy(maxRecruitTimes = it, minimumRecruitTimes = config.minimumRecruitTimes.coerceAtMost(it.coerceAtLeast(1)))) },
             minimum = 0,
             modifier = Modifier
                 .fillMaxWidth(0.5f)
@@ -250,6 +253,28 @@ private fun RecruitMaxTimesSection(
     }
 }
 
+
+@Composable
+private fun RecruitMinimumTimesSection(config: RecruitConfig, onConfigChange: (RecruitConfig) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        CheckBoxWithLabel(
+            checked = config.minimumRecruitTimesEnabled,
+            onCheckedChange = { onConfigChange(config.copy(minimumRecruitTimesEnabled = it)) },
+            enabled = config.maxRecruitTimes > 0,
+            label = stringResource(R.string.panel_recruit_minimum_times_title)
+        )
+        if (config.minimumRecruitTimesEnabled && config.maxRecruitTimes > 0) {
+            INumericField(
+                value = config.minimumRecruitTimes.coerceIn(1, config.maxRecruitTimes),
+                onValueChange = { onConfigChange(config.copy(minimumRecruitTimes = it.coerceIn(1, config.maxRecruitTimes))) },
+                minimum = 1,
+                maximum = config.maxRecruitTimes,
+                modifier = Modifier.fillMaxWidth(0.5f).height(56.dp)
+            )
+        }
+        Text(stringResource(R.string.panel_recruit_minimum_times_tip), style = MaterialTheme.typography.bodySmall)
+    }
+}
 
 /**
  * 自动公招选择策略
