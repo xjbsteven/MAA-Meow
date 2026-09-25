@@ -28,4 +28,4 @@ Core 与完整 resource 从同一固定 commit 部署；NCNN 由该 resource 的
 
 ADB `devices -l` 为空，真机新装/覆盖安装、首次/手动资源初始化、普通任务、公招最低数量触发、station_preset 全流程与菲亚梅塔宿舍流程均待用户现场验证；没有宣称真机通过。
 
-注意：Android OCR runtime libraries 来自本机已有的 arm64 官方 staging；本轮精确固定的 Core/Utils 与 Git resource、由同份 ONNX 转换出的 NCNN 已在构建前及 APK 内核对。
+注意：Android OCR runtime libraries 从 Core sibling 仓库 `install/` 中按固定 SHA-256 复制；本轮精确固定的 Core/Utils 与 Git resource、由同份 ONNX 转换出的 NCNN 已在构建前及 APK 内核对。

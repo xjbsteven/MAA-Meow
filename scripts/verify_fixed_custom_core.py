@@ -8,6 +8,12 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 VERSION = 'v6.17.3-alpha.1-custom.11feb567ab'
 SHA256 = 'a4a168270523bcfb5c21503bf85c1f7fa010d16485950baad24ea308ef057ddb'
+RUNTIME_SHA256 = {
+    'libMaaAndroidNativeControlUnit.so': '40eee689dd7fea90d9da7350b78bb5de0bcdc344c75fa6875f73be3a6254e8ce',
+    'libonnxruntime.so': '71c92e5779b04cfcc234aff8452d08010c8a8b13982f5e32954e380037c5e057',
+    'libopencv_world4.so': '909caa9ab62d20d206e8fa3734d6b0877fcd36db0c01570a546fdcdf0cd7e58e',
+    'libfastdeploy_ppocr.so': '6ccc3608b21a5e49e7acc41f12ce73c2671ab388ed356a73b3fea1628f482c5b',
+}
 RESOURCE = ROOT / 'app/src/main/assets/MaaSync/MaaResource'
 NATIVE = ROOT / 'app/src/main/jniLibs/arm64-v8a'
 
@@ -21,7 +27,10 @@ def main() -> None:
     require(hashlib.sha256(core.read_bytes()).hexdigest() == SHA256, 'libMaaCore.so SHA-256 mismatch')
     require(VERSION.encode() in core.read_bytes(), 'embedded Core version mismatch')
     require((NATIVE / 'libMaaUtils.so').is_file(), 'libMaaUtils.so missing')
-    require((NATIVE / 'libMaaAndroidNativeControlUnit.so').is_file(), 'control unit missing')
+    for name, expected in RUNTIME_SHA256.items():
+        path = NATIVE / name
+        require(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected, f'Android runtime drift: {name}')
+
     require((RESOURCE / 'tasks/tasks.json').is_file(), 'Core tasks resource missing')
     for package in ('PaddleOCR', 'PaddleCharOCR'):
         for kind in ('det', 'rec'):

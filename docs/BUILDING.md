@@ -30,7 +30,7 @@ python3 scripts/deploy_fixed_custom_core.py
 python3 scripts/verify_fixed_custom_core.py
 ```
 
-部署脚本用 `git archive` 从固定 commit 导出完整 `resource/`，清除旧 `MaaResource`，复制 Core 与 Utils so，并写 `.maaversion`。OCR ONNX 与 templates/tasks 均来自相同 Git tree。Android OCR runtime 使用 `jniLibs/arm64-v8a` 中的官方 Android runtime 库；NCNN 由项目 `scripts/convert_ocr_ncnn.py` 从此 commit 的 OCR ONNX 生成，缓存键包含 ONNX 哈希和转换配方。至少检查 PaddleOCR/PaddleCharOCR 的 `det`、`rec` `.ncnn.param/.bin`；不能跳过转换。
+部署脚本用 `git archive` 从固定 commit 导出完整 `resource/`，清除旧 `MaaResource`，复制 Core 与 Utils so，并写 `.maaversion`。OCR ONNX 与 templates/tasks 均来自相同 Git tree。Android OCR runtime 从同一个 Core sibling 仓库的 `install/` 复制，部署与构建前按脚本内四个固定 SHA-256 核对（Android control unit、onnxruntime、OpenCV、fastdeploy）；NCNN 由项目 `scripts/convert_ocr_ncnn.py` 从此 commit 的 OCR ONNX 生成，缓存键包含 ONNX 哈希和转换配方。至少检查 PaddleOCR/PaddleCharOCR 的 `det`、`rec` `.ncnn.param/.bin`；不能跳过转换。
 
 `verifyFixedCore` 在 Gradle `preBuild` 前执行，要求 `.maaversion`、so SHA-256、嵌入版本、`tasks/tasks.json`、OCR runtime 与 NCNN 都存在。资源清单生成时过滤 `.DS_Store`、`._*`、`__MACOSX`，运行时提取再过滤一次。
 
