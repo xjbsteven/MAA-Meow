@@ -53,3 +53,8 @@ tmp.txt
 
 # Fixed custom Core resource identity generated during local deployment
 .maa-resource-identity.json
+
+# Local build toolchains and generated APKs retained across branch changes
+/.build-tools/
+/.venv/
+/dist/
