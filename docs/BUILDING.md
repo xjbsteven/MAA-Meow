@@ -37,7 +37,7 @@ python3 scripts/verify_fixed_custom_core.py
 ## 测试、构建、验收
 
 ```bash
-./gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
+bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
   -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=900 \
   -Pmaa.customVersionName=0.22.0-custom.11feb567ab
 python3 scripts/verify_fixed_custom_core.py
