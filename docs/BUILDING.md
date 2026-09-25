@@ -37,7 +37,8 @@ python3 scripts/verify_fixed_custom_core.py
 ## 测试、构建、验收
 
 ```bash
-bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
+ANDROID_USER_HOME="$PWD/.build-tools/android-home/.android" \
+  bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
   -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=900 \
   -Pmaa.customVersionName=0.22.0-custom.11feb567ab
 python3 scripts/verify_fixed_custom_core.py
@@ -50,4 +51,10 @@ shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
 
 > `.maaversion`、staged `MaaResource` 与 native so 是本地生成输入，不应由 Git 提交；交付 commit 加本文件与指定 Core commit 可重建它们。
 
-本次交付 APK SHA-256：`c9b3288df14464cf1fef178180032e643aa8cc25e12dc9f7ae9f57ba22804ffe`（`app/build/outputs/apk/debug/app-debug.apk`）。
+本次交付 APK SHA-256：`1bc0cb7cd99afb819ca0fa55d4a6bbe4e1d764e5c96fe7fdb3398a94df19038c`（`app/build/outputs/apk/debug/app-debug.apk`）。
+
+## 覆盖安装签名
+
+旧 447 debug APK 的签名证书 SHA-256 是 `0cd27521db91bace8e72f8c862e0242b841c03cf0b49b40f15b06c2acaf79b22`。本轮首次 APK 误用了 `~/.android/debug.keystore`（证书 `0db81adda822e33d9de3b59e7077599765b91aef3dd9216dcea8a2f87d05794e`），因此 Android 拒绝覆盖安装。可覆盖安装包改用本机已有的 `.build-tools/android-home/.android/debug.keystore`；该密钥是用户本地文件，不在 Git 中。运行 Gradle 时必须设置上面的 `ANDROID_USER_HOME`。
+
+构建后用 `apksigner verify --print-certs` 对照旧 APK 与新 APK 的签名证书 SHA-256，必须完全相同；再检查 `versionCode` 高于旧包。没有相同的私钥时无法从 Git commit 单独重现可覆盖安装签名，只能新装或由密钥持有人签名。

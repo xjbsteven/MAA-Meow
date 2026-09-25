@@ -14,7 +14,7 @@
 - versionCode=`900`
 - versionName=`0.22.0-custom.11feb567ab`
 - APK filename=`app-debug.apk`
-- APK SHA-256=`c9b3288df14464cf1fef178180032e643aa8cc25e12dc9f7ae9f57ba22804ffe`
+- APK SHA-256=`1bc0cb7cd99afb819ca0fa55d4a6bbe4e1d764e5c96fe7fdb3398a94df19038c`
 
 本轮以官方 Android 固定 main 为底，新增 `minimum_recruit_times` UI/序列化，旧 `forceConfirmToMeetTimes` 加载与备份导入迁移，保留官方独立的 `level3_recruitment_permit_reserve`。Rotation 增加 game/station_preset 子模式、布局/设施选择、rest、drones 以及会客室接收线索；station_preset 复用官方菲亚梅塔配置，跨设施组合仅 Normal 模式生效。固定 Core 的 dorm OCR fail-open 属 Core 实现，Android 不加规避分支。
 
@@ -29,3 +29,7 @@ Core 与完整 resource 从同一固定 commit 部署；NCNN 由该 resource 的
 ADB `devices -l` 为空，真机新装/覆盖安装、首次/手动资源初始化、普通任务、公招最低数量触发、station_preset 全流程与菲亚梅塔宿舍流程均待用户现场验证；没有宣称真机通过。
 
 注意：Android OCR runtime libraries 从 Core sibling 仓库 `install/` 中按固定 SHA-256 复制；本轮精确固定的 Core/Utils 与 Git resource、由同份 ONNX 转换出的 NCNN 已在构建前及 APK 内核对。
+
+## 2026-09-25 覆盖安装修复
+
+用户现场截图显示安装失败 -7，系统报告与已安装应用签名不同。旧 447 APK 证书 SHA-256 为 `0cd27521db91bace8e72f8c862e0242b841c03cf0b49b40f15b06c2acaf79b22`，首次交付 APK 的证书为 `0db81adda822e33d9de3b59e7077599765b91aef3dd9216dcea8a2f87d05794e`。使用本机保留的旧 debug keystore 重新构建后，新 APK 证书与旧包完全一致。新 APK SHA-256 为 `1bc0cb7cd99afb819ca0fa55d4a6bbe4e1d764e5c96fe7fdb3398a94df19038c`。尚未通过真机重试安装。
