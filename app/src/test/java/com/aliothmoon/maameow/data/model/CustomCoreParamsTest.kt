@@ -4,6 +4,8 @@ import com.aliothmoon.maameow.domain.enums.InfrastMode
 import com.aliothmoon.maameow.domain.enums.InfrastRotationStyle
 import com.aliothmoon.maameow.utils.JsonUtils
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -91,5 +93,40 @@ class CustomCoreParamsTest {
         assertEquals(2, migrated.minimumRecruitTimes)
         assertEquals(2, params(migrated).getValue("minimum_recruit_times").jsonPrimitive.int)
         assertEquals(1, RecruitConfig(maxRecruitTimes = 0, minimumRecruitTimes = 4).migrate().minimumRecruitTimes)
+    }
+    @Test fun legacyProfileMigratesWithoutDroppingStationPreset() {
+        val json = JsonUtils.common
+        val profile = TaskProfile(
+            name = "legacy-441",
+            chain = listOf(
+                TaskChainNode(name = "Recruit", config = RecruitConfig(maxRecruitTimes = 4)),
+                TaskChainNode(name = "Base", config = InfrastConfig(
+                    mode = InfrastMode.Rotation,
+                    rotationStyle = InfrastRotationStyle.StationPreset,
+                    presetSelectedRooms = listOf("Control", "Mfg1"),
+                )),
+            ),
+        )
+        val root = json.parseToJsonElement(json.encodeToString(listOf(profile))).jsonArray
+        val profileObject = root.single().jsonObject
+        val nodes = profileObject.getValue("chain").jsonArray.mapIndexed { index, element ->
+            if (index != 0) element else {
+                val node = element.jsonObject
+                val config = node.getValue("config").jsonObject.toMutableMap()
+                config.remove("minimumRecruitTimesEnabled")
+                config.remove("minimumRecruitTimes")
+                config["forceConfirmToMeetTimes"] = kotlinx.serialization.json.JsonPrimitive(true)
+                JsonObject(node + ("config" to JsonObject(config)))
+            }
+        }
+        val oldData = JsonArray(listOf(JsonObject(profileObject + ("chain" to JsonArray(nodes))))).toString()
+        val restored = json.decodeFromString<List<TaskProfile>>(RecruitProfileMigration.migrate(oldData, json))
+        val recruit = restored.single().chain[0].config as RecruitConfig
+        val base = restored.single().chain[1].config as InfrastConfig
+        assertTrue(recruit.minimumRecruitTimesEnabled)
+        assertEquals(4, recruit.minimumRecruitTimes)
+        assertEquals(listOf("Control", "Mfg1"), base.presetSelectedRooms)
+        assertEquals(InfrastRotationStyle.StationPreset, base.rotationStyle)
+        assertEquals(restored, json.decodeFromString<List<TaskProfile>>(json.encodeToString(restored)))
     }
 }
