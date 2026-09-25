@@ -1006,6 +1006,7 @@
     <string name="panel_infrast_drones_chip">制造站-芯片组</string>
     <string name="panel_infrast_dorm_threshold_title">宿舍心情阈值</string>
     <string name="panel_infrast_dorm_threshold_tip">若启用自定义换班，该字段仅针对 autofill 和使用工员编组的房间有效</string>
+    <string name="panel_infrast_dorm_threshold_station_preset_tip">开启菲亚梅塔心情恢复时，只有心情低于该阈值的已选恢复目标才会成为候选，Core 会从候选中选择当前心情最低者。</string>
     <string name="panel_infrast_facilities_title">基建设施</string>
     <string name="panel_infrast_facilities_tip">勾选需要换班的设施\n设施顺序代表换班优先级</string>
     <string name="panel_infrast_facility_drag_reorder">拖动排序</string>

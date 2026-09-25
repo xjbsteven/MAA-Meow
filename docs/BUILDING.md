@@ -39,19 +39,19 @@ python3 scripts/verify_fixed_custom_core.py
 ```bash
 ANDROID_USER_HOME="$PWD/.build-tools/android-home/.android" \
   bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
-  -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=900 \
-  -Pmaa.customVersionName=0.22.0-custom.11feb567ab
+  -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=901 \
+  -Pmaa.customVersionName=0.22.0-custom.11feb567ab.1
 python3 scripts/verify_fixed_custom_core.py
 unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'lib/arm64-v8a/libMaaCore.so|MaaResource/tasks/tasks.json|\.ncnn\.(param|bin)'
 unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'DS_Store|__MACOSX|/\._' # 必须无输出
 shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-使用 SDK build-tools 36.0.0 的 `aapt dump badging` 或 `apkanalyzer manifest application-id/version-code/version-name` 核对包信息，再用 `unzip -p` 抽出 `libMaaCore.so` 验证 SHA-256 与嵌入版本。构建产物是 debug 签名 APK，构建参数显式固定 versionCode 900（大于旧 441）与 versionName `0.22.0-custom.11feb567ab`；不传两个参数时仍使用官方 Git 计数与描述策略。不要使用最新官方 Core 自动覆盖 staged 文件。
+使用 SDK build-tools 36.0.0 的 `aapt dump badging` 或 `apkanalyzer manifest application-id/version-code/version-name` 核对包信息，再用 `unzip -p` 抽出 `libMaaCore.so` 验证 SHA-256 与嵌入版本。构建产物是 debug 签名 APK，构建参数显式固定 versionCode 901（大于旧 441）与 versionName `0.22.0-custom.11feb567ab.1`；不传两个参数时仍使用官方 Git 计数与描述策略。不要使用最新官方 Core 自动覆盖 staged 文件。
 
 > `.maaversion`、staged `MaaResource` 与 native so 是本地生成输入，不应由 Git 提交；交付 commit 加本文件与指定 Core commit 可重建它们。
 
-本次交付 APK SHA-256：`1bc0cb7cd99afb819ca0fa55d4a6bbe4e1d764e5c96fe7fdb3398a94df19038c`（`app/build/outputs/apk/debug/app-debug.apk`）。
+本次交付 APK SHA-256：`fe8bc64adcebdf9cb676c2ce79796d983bda681614456f7b68a678a8d6b0a664`（`app/build/outputs/apk/debug/app-debug.apk`）。
 
 ## 覆盖安装签名
 

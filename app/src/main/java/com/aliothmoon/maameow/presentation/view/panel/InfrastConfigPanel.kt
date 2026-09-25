@@ -185,9 +185,9 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 心情阈值 (仅 Normal 模式显示)
+                            // StationPreset 的菲亚梅塔恢复也使用宿舍心情阈值
                             MaaAnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
+                                visible = showDormThreshold(config),
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -195,8 +195,10 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 设施列表
-                            FacilitiesSection(config, onConfigChange)
+                            // StationPreset 使用上方的 preset.rooms，不使用普通设施类别
+                            MaaAnimatedVisibility(visible = showFacilities(config)) {
+                                FacilitiesSection(config, onConfigChange)
+                            }
                         }
                     }
 
@@ -1248,7 +1250,11 @@ private fun DormThresholdSection(
 
         ExpandableTipContent(
             visible = tipExpanded,
-            tipText = stringResource(R.string.panel_infrast_dorm_threshold_tip)
+            tipText = if (config.usesRotationStationPreset()) {
+                stringResource(R.string.panel_infrast_dorm_threshold_station_preset_tip)
+            } else {
+                stringResource(R.string.panel_infrast_dorm_threshold_tip)
+            }
         )
 
         Slider(

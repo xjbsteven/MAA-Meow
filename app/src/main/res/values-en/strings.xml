@@ -952,6 +952,7 @@
     <string name="panel_infrast_drones_chip">Chip Packs</string>
     <string name="panel_infrast_dorm_threshold_title">Dorm Mood Threshold</string>
     <string name="panel_infrast_dorm_threshold_tip">When custom shift switching is enabled, this field only applies to autofill and rooms that use worker groups.</string>
+    <string name="panel_infrast_dorm_threshold_station_preset_tip">When Fiammetta mood recovery is enabled, only selected targets below this threshold are candidates. Core chooses the candidate with the lowest current mood.</string>
     <string name="panel_infrast_facilities_title">Facilities</string>
     <string name="panel_infrast_facilities_tip">Check the facilities that should be swapped.\nThe order of facilities represents shift priority.</string>
     <string name="panel_infrast_facility_drag_reorder">Drag to reorder</string>

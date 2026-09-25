@@ -7,6 +7,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.double
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -49,6 +50,7 @@ class CustomCoreParamsTest {
     @Test fun stationPresetKeepsAuxiliaryAndFiammetta() {
         val config = InfrastConfig(
             mode = InfrastMode.Rotation, rotationStyle = InfrastRotationStyle.StationPreset,
+            dormThreshold = 30,
             presetSelectedRooms = listOf("Control", "Mfg1", "Trade1"), presetRest = false,
             stationPresetDrones = StationPresetDrones(true, StationPresetDrones.Room.Trading, 1, StationPresetDrones.Order.Post),
             fiammettaRecoveryEnabled = true, fiammettaTargets = listOf("清流", "可露希尔"),
@@ -56,11 +58,15 @@ class CustomCoreParamsTest {
             dormTrustEnabled = true, dormFilterNotStationedEnabled = false,
         )
         val result = params(config)
+        assertEquals(20000, result.getValue("mode").jsonPrimitive.int)
         assertEquals("station_preset", result.getValue("rotation_style").jsonPrimitive.content)
+        assertEquals(0.3, result.getValue("threshold").jsonPrimitive.double, 0.000001)
+        assertEquals(0.5, params(config.copy(dormThreshold = 50)).getValue("threshold").jsonPrimitive.double, 0.000001)
         assertEquals(listOf("Control", "Mfg1", "Trade1"), result.getValue("preset").jsonObject.getValue("rooms").jsonArray.map { it.jsonPrimitive.content })
         assertFalse(result.getValue("preset").jsonObject.getValue("rest").jsonPrimitive.boolean)
         assertEquals("post", result.getValue("drones").jsonObject.getValue("order").jsonPrimitive.content)
         assertTrue(result.getValue("fiammetta_recovery_enabled").jsonPrimitive.boolean)
+        assertEquals(listOf("清流", "可露希尔"), result.getValue("fiammetta_targets").jsonArray.map { it.jsonPrimitive.content })
         assertFalse(result.getValue("reception_receive_clue").jsonPrimitive.boolean)
         assertFalse(result.getValue("dorm_notstationed_enabled").jsonPrimitive.boolean)
     }
