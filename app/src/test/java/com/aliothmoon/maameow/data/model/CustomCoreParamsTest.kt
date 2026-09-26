@@ -94,6 +94,35 @@ class CustomCoreParamsTest {
         assertTrue(initial.copy(presetSelectedRooms = emptyList()).syncPresetRoomsAfterLayoutChange().presetSelectedRooms.isEmpty())
     }
 
+    @Test fun stationPresetDormAndFiammettaFlagsRemainIndependent() {
+        val base = InfrastConfig(
+            mode = InfrastMode.Rotation,
+            rotationStyle = InfrastRotationStyle.StationPreset,
+            dormThreshold = 100,
+            fiammettaTargets = listOf("但书"),
+        )
+        for ((fiammetta, trust, notStationed) in listOf(
+            Triple(true, true, true),
+            Triple(false, true, false),
+            Triple(true, false, false),
+            Triple(false, false, true),
+        )) {
+            val result = params(base.copy(
+                fiammettaRecoveryEnabled = fiammetta,
+                dormTrustEnabled = trust,
+                dormFilterNotStationedEnabled = notStationed,
+            ))
+            assertEquals(20000, result.getValue("mode").jsonPrimitive.int)
+            assertEquals("station_preset", result.getValue("rotation_style").jsonPrimitive.content)
+            assertEquals(1.0, result.getValue("threshold").jsonPrimitive.double, 0.000001)
+            assertTrue(result.getValue("preset").jsonObject.getValue("rooms").jsonArray.isNotEmpty())
+            assertEquals(fiammetta, result.getValue("fiammetta_recovery_enabled").jsonPrimitive.boolean)
+            assertEquals(trust, result.getValue("dorm_trust_enabled").jsonPrimitive.boolean)
+            assertEquals(notStationed, result.getValue("dorm_notstationed_enabled").jsonPrimitive.boolean)
+            assertEquals(listOf("但书"), result.getValue("fiammetta_targets").jsonArray.map { it.jsonPrimitive.content })
+        }
+    }
+
     @Test fun recruitMinimumClampsPersistedValues() {
         val migrated = RecruitConfig(maxRecruitTimes = 2, minimumRecruitTimesEnabled = true, minimumRecruitTimes = 4).migrate()
         assertEquals(2, migrated.minimumRecruitTimes)

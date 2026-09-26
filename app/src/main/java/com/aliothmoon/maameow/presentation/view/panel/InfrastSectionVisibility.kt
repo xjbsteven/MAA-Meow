@@ -8,3 +8,6 @@ internal fun showFacilities(config: InfrastConfig): Boolean =
 
 internal fun showDormThreshold(config: InfrastConfig): Boolean =
     config.mode != InfrastMode.Rotation || config.usesRotationStationPreset()
+
+internal fun showDormAuxiliaryOptions(config: InfrastConfig): Boolean =
+    config.mode != InfrastMode.Rotation || config.usesRotationStationPreset()

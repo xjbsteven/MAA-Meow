@@ -16,15 +16,19 @@ class InfrastSectionVisibilityTest {
         assertTrue(config.usesRotationStationPreset())
         assertFalse(showFacilities(config))
         assertTrue(showDormThreshold(config))
+        assertTrue(showDormAuxiliaryOptions(config))
     }
 
     @Test fun otherModesKeepExistingVisibility() {
         assertTrue(showFacilities(InfrastConfig(mode = InfrastMode.Normal)))
         assertTrue(showDormThreshold(InfrastConfig(mode = InfrastMode.Normal)))
+        assertTrue(showDormAuxiliaryOptions(InfrastConfig(mode = InfrastMode.Normal)))
         assertTrue(showFacilities(InfrastConfig(mode = InfrastMode.Custom)))
         assertTrue(showDormThreshold(InfrastConfig(mode = InfrastMode.Custom)))
+        assertTrue(showDormAuxiliaryOptions(InfrastConfig(mode = InfrastMode.Custom)))
         val game = InfrastConfig(mode = InfrastMode.Rotation, rotationStyle = InfrastRotationStyle.Game)
         assertTrue(showFacilities(game))
         assertFalse(showDormThreshold(game))
+        assertFalse(showDormAuxiliaryOptions(game))
     }
 }

@@ -210,9 +210,9 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 宿舍信赖模式 (仅 Normal 模式显示)
+                            // 宿舍信赖模式也可用于 StationPreset 的后置宿舍整理
                             MaaAnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
+                                visible = showDormAuxiliaryOptions(config),
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
@@ -220,9 +220,9 @@ fun InfrastConfigPanel(
                             }
                         }
                         item {
-                            // 不将已进驻干员放入宿舍 (仅 Normal 模式显示)
+                            // 已进驻筛选也可用于 StationPreset 的后置宿舍整理
                             MaaAnimatedVisibility(
-                                visible = config.mode != InfrastMode.Rotation,
+                                visible = showDormAuxiliaryOptions(config),
                                 enter = expandVertically(),
                                 exit = shrinkVertically()
                             ) {
