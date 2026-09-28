@@ -6,8 +6,8 @@ import json
 import sys
 
 ROOT = Path(__file__).resolve().parent.parent
-VERSION = 'v6.17.3-alpha.1-custom.5115df57b4'
-SHA256 = 'feedcfcbfad3b4621c18563833037be0af566eed54d9a8f86a2631834cd67728'
+VERSION = 'v6.17.3-alpha.1-custom.f2bab0c169'
+SHA256 = '2d1d14f35fd1d0a8e576d0b9df19d92d7d38fdd289f3228cae52cb42f5c8133d'
 RUNTIME_SHA256 = {
     'libMaaAndroidNativeControlUnit.so': '40eee689dd7fea90d9da7350b78bb5de0bcdc344c75fa6875f73be3a6254e8ce',
     'libonnxruntime.so': '71c92e5779b04cfcc234aff8452d08010c8a8b13982f5e32954e380037c5e057',
@@ -37,8 +37,8 @@ def main() -> None:
             for ext in ('param', 'bin'):
                 require((RESOURCE / package / kind / f'{kind}.ncnn.{ext}').is_file(), f'NCNN missing: {package}/{kind}/{ext}')
     identity = json.loads((ROOT / '.maa-resource-identity.json').read_text())
-    require(identity['core_sha'] == '5115df57b4d8b30dd201041b1c394b214148611b', 'resource Core SHA mismatch')
-    require(identity['core_tree'] == '7a0e50239b265fd5811ae07515c35c5d90ce2ee4', 'resource tree mismatch')
+    require(identity['core_sha'] == 'f2bab0c169960101e1f689744fa3b315e6342d2c', 'resource Core SHA mismatch')
+    require(identity['core_tree'] == '636dc434c7b91af36ee571db3151dfcb2cad904c', 'resource tree mismatch')
     for name, expected in identity['resource_files'].items():
         path = RESOURCE / name
         require(path.is_file() and hashlib.sha256(path.read_bytes()).hexdigest() == expected, f'resource drift: {name}')
