@@ -13,9 +13,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_REPO = Path(os.environ.get('MAA_CORE_REPO', str(ROOT.parent / 'MaaAssistantArknights')))
-CORE_SHA = 'f2bab0c169960101e1f689744fa3b315e6342d2c'
-CORE_VERSION = 'v6.17.3-alpha.1-custom.f2bab0c169'
-CORE_SHA256 = '2d1d14f35fd1d0a8e576d0b9df19d92d7d38fdd289f3228cae52cb42f5c8133d'
+CORE_SHA = '3ae6322ccab59c1dcff62812c17cd9eda1e9914f'
+CORE_VERSION = 'v6.17.3-alpha.1-custom.3ae6322cca'
+CORE_SHA256 = '0f51bcfab863ca1223eef390a024bff66dfe169671715ead26271bac9ba99779'
 RUNTIME_SHA256 = {
     'libMaaAndroidNativeControlUnit.so': '40eee689dd7fea90d9da7350b78bb5de0bcdc344c75fa6875f73be3a6254e8ce',
     'libonnxruntime.so': '71c92e5779b04cfcc234aff8452d08010c8a8b13982f5e32954e380037c5e057',

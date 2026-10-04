@@ -4,18 +4,18 @@
 
 旧推荐可用包为 versionCode **441**、versionName `0.14.4-alpha.26`、Core `v6.13.0-beta.2-54-gb413a132d5`。440 因 APK 内 `.DS_Store` 导致资源初始化失败而废弃。后续 447 是 2026-09-07 旧分支临时构建，均不作为本轮开发底座。
 
-## 当前升级基线（2026-09-28 Core-only 重打包）
+## 当前升级基线（2026-10-04 构建收尾）
 
 - ANDROID_UPSTREAM_SHA=`ad0c95b2230f9d3aa10d546dc0d226e83d4988a8`
 - CORE_UPSTREAM_SHA=`9e56e82c0d1577e73603d8be676686bbfeb5f13d`
-- CUSTOM_CORE_SHA=`f2bab0c169960101e1f689744fa3b315e6342d2c`
-- CUSTOM_CORE_VERSION=`v6.17.3-alpha.1-custom.f2bab0c169`
-- Core binary SHA-256=`2d1d14f35fd1d0a8e576d0b9df19d92d7d38fdd289f3228cae52cb42f5c8133d`
-- Android 起点=`486d62eb7023b5bc1fd6be338c73f408bd4f5cf2`
-- versionCode=`904`
-- versionName=`0.22.0-custom.f2bab0c169.4`
-- APK filename=`MAA-Meow-v904-arm64-cover-install.apk`
-- APK SHA-256=`6df47280bd4be91c55fe857bd2839527caef63c0bb076557d2ab7d6adbfe5981`
+- CUSTOM_CORE_SHA=`3ae6322ccab59c1dcff62812c17cd9eda1e9914f`
+- CUSTOM_CORE_VERSION=`v6.17.3-alpha.1-custom.3ae6322cca`
+- Core binary SHA-256=`0f51bcfab863ca1223eef390a024bff66dfe169671715ead26271bac9ba99779`
+- Android 起点=`229fd5cab54aa465d0d565c3ccf5f065e0723da0`
+- versionCode=`905`
+- versionName=`0.22.0-custom.3ae6322cca.5`
+- APK filename=`MAA-Meow-v905-arm64-cover-install.apk`
+- APK SHA-256=`23260d8b226e840f177e214bd6a8b7312dd6350bbb56613142dfa5d2dcce87ee`
 
 本轮以官方 Android 固定 main 为底，新增 `minimum_recruit_times` UI/序列化，旧 `forceConfirmToMeetTimes` 加载与备份导入迁移，保留官方独立的 `level3_recruitment_permit_reserve`。Rotation 增加 game/station_preset 子模式、布局/设施选择、rest、drones 以及会客室接收线索；station_preset 复用官方菲亚梅塔配置，跨设施组合仅 Normal 模式生效。固定 Core 的 dorm OCR fail-open 属 Core 实现，Android 不加规避分支。
 
@@ -56,3 +56,9 @@ Rotation + StationPreset 只显示编号设施选择 `presetSelectedRooms`，隐
 Core 从 `5115df57b4d8b30dd201041b1c394b214148611b` 更新为 `f2bab0c169960101e1f689744fa3b315e6342d2c`。Android UI、Infrast 业务代码和参数逻辑未改。按 exact-commit 流程重新导出完整 resource、生成 NCNN 和 identity，并部署匹配的 Core/Utils。
 
 自动验收：`:app:testDebugUnitTest`、`:app:lintDebug`、`:app:assembleDebug` 与 `verify_fixed_custom_core.py` 全部通过；APK 内 Core SHA-256 为 `2d1d14f35fd1d0a8e576d0b9df19d92d7d38fdd289f3228cae52cb42f5c8133d`，嵌入版本 `v6.17.3-alpha.1-custom.f2bab0c169`；仅 arm64，含 tasks 与 NCNN，无 macOS 垃圾文件。签名证书与 v903 相同：`0cd27521db91bace8e72f8c862e0242b841c03cf0b49b40f15b06c2acaf79b22`。
+
+## 2026-10-04 构建收尾
+
+Core 固定 `3ae6322ccab59c1dcff62812c17cd9eda1e9914f`，tree `766ffc25a26d5f8779308ea9e55701077499c1fe`。沿用 NDK 29 的 build-android 环境，clean 后禁用 ccache 重编 MaaCore/MaaUtils；Utils 原始 SHA-256 为 `07a1e01096cd59ce151990a429ed8a135fb70263564a2d93feaa4135556ead3f`。四个 runtime 固定哈希未变。资源由同提交 git archive 导出，NCNN 脚本完成 8 组同 ONNX/配方缓存部署。
+
+`verify_fixed_custom_core.py`、完整 `:app:testDebugUnitTest`、`:app:lintDebug`、`:app:assembleDebug` 全部通过。SwitchThemeConfigTest 四项通过，覆盖 onlyIfFallback 参数序列化与 profile round-trip。APK 仅 arm64，Core 与新编译 so 逐字节一致，不含旧 Core 版本；Utils 与本次 so 经 Gradle strip 后一致。9453 个原始资源哈希和 16 个 NCNN 文件与 staged 输入一致。APK v2 签名有效，证书与历史覆盖安装包一致；versionCode 905。ADB 无设备，实际安装及运行验收待真机验证。本轮没有修改业务逻辑，没有新增 Core 源码提交。
