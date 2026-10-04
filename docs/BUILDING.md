@@ -9,8 +9,8 @@
 - macOS、JDK 25、Android SDK 37、NDK 29.0.13113456；设置 `JAVA_HOME`、`ANDROID_HOME`，在 `local.properties` 写 `sdk.dir`。
 - Android upstream 固定 SHA：`ad0c95b2230f9d3aa10d546dc0d226e83d4988a8`，不要在本次重建时重新追踪 `main`。
 - Core upstream SHA：`9e56e82c0d1577e73603d8be676686bbfeb5f13d`。
-- 自定义 Core 仓库 `xjbsteven/MaaAssistantArknights` 中固定 commit：`3ae6322ccab59c1dcff62812c17cd9eda1e9914f`，tree `766ffc25a26d5f8779308ea9e55701077499c1fe`。
-- Core 版本：`v6.17.3-alpha.1-custom.3ae6322cca`。
+- 自定义 Core 仓库 `xjbsteven/MaaAssistantArknights` 中固定 commit：`6652f584336c13519b7ceb8fca2b40c91dc0c0ef`，tree `8841af18e5b5a533148d0bdf0c4a18f74826a81c`。
+- Core 版本：`v6.17.3-alpha.1-custom.6652f58433`。
 
 默认 Core 仓库位于 Android 仓库的 `../MaaAssistantArknights`；可用 `MAA_CORE_REPO` 指定其他路径。部署脚本只读该仓库的 Git 对象和已构建的 `build-android/bin`，不会切换或改动其工作树。
 
@@ -22,12 +22,12 @@
 cmake --preset android-arm64 -B build-android \
   -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/29.0.13113456/build/cmake/android.toolchain.cmake" \
   -DBUILD_DEBUG_DEMO=OFF -DBUILD_RESOURCE_UPDATER=OFF -DBUILD_MAA_UTILS=ON \
-  -DMAA_HASH_VERSION=v6.17.3-alpha.1-custom.3ae6322cca
+  -DMAA_HASH_VERSION=v6.17.3-alpha.1-custom.6652f58433
 cmake --build build-android --target clean
 CCACHE_DISABLE=1 cmake --build build-android --target MaaCore MaaUtils -j 6
 ```
 
-确认 `build-android/bin/libMaaCore.so` SHA-256 为 `0f51bcfab863ca1223eef390a024bff66dfe169671715ead26271bac9ba99779`。同目录的 `libMaaUtils.so` 一同部署。若 checkout 不是固定 commit，请使用独立 worktree 构建；切勿把别的 commit 构建出的 so 冒充固定产物。
+确认 `build-android/bin/libMaaCore.so` SHA-256 为 `8265222663530aa81546dafd7b84751049bd1b3c4833de167481fe0a6cf6de11`。同目录的 `libMaaUtils.so` 一同部署。若 checkout 不是固定 commit，请使用独立 worktree 构建；切勿把别的 commit 构建出的 so 冒充固定产物。
 
 ## 部署与校验
 
@@ -45,19 +45,19 @@ python3 scripts/verify_fixed_custom_core.py
 ```bash
 ANDROID_USER_HOME="$PWD/.build-tools/android-home/.android" \
   bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
-  -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=905 \
-  -Pmaa.customVersionName=0.22.0-custom.3ae6322cca.5
+  -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=906 \
+  -Pmaa.customVersionName=0.22.0-custom.6652f58433.6
 python3 scripts/verify_fixed_custom_core.py
 unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'lib/arm64-v8a/libMaaCore.so|MaaResource/tasks/tasks.json|\.ncnn\.(param|bin)'
 unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'DS_Store|__MACOSX|/\._' # 必须无输出
 shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-使用 SDK build-tools 36.0.0 的 `aapt dump badging` 或 `apkanalyzer manifest application-id/version-code/version-name` 核对包信息，再用 `unzip -p` 抽出 `libMaaCore.so` 验证 SHA-256 与嵌入版本。构建产物是 debug 签名 APK，构建参数显式固定 versionCode 905（高于上一包 904）与 versionName `0.22.0-custom.3ae6322cca.5`；不传两个参数时仍使用官方 Git 计数与描述策略。不要使用最新官方 Core 自动覆盖 staged 文件。
+使用 SDK build-tools 36.0.0 的 `aapt dump badging` 或 `apkanalyzer manifest application-id/version-code/version-name` 核对包信息，再用 `unzip -p` 抽出 `libMaaCore.so` 验证 SHA-256 与嵌入版本。构建产物是 debug 签名 APK，构建参数显式固定 versionCode 906（高于上一包 905）与 versionName `0.22.0-custom.6652f58433.6`；不传两个参数时仍使用官方 Git 计数与描述策略。不要使用最新官方 Core 自动覆盖 staged 文件。
 
 > `.maaversion`、staged `MaaResource` 与 native so 是本地生成输入，不应由 Git 提交；交付 commit 加本文件与指定 Core commit 可重建它们。
 
-本次交付 APK SHA-256：`23260d8b226e840f177e214bd6a8b7312dd6350bbb56613142dfa5d2dcce87ee`（`app/build/outputs/apk/debug/app-debug.apk`，复制为 `dist/MAA-Meow-v905-arm64-cover-install.apk`）。
+本次交付 APK SHA-256：`7899c8f84921b2c01fef09d4bdbfa7ed1cf11c0bab9eb27270ae5940cb04c88c`（`app/build/outputs/apk/debug/app-debug.apk`，复制为 `dist/MAA-Meow-v906-arm64-cover-install.apk`）。
 
 ## 覆盖安装签名
 
