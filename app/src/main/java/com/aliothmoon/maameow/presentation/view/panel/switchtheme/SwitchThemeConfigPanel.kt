@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +48,24 @@ fun SwitchThemeConfigPanel(
     ) {
         Text(
             text = stringResource(R.string.panel_switch_theme_tip),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Checkbox(
+                checked = config.onlyIfFallback,
+                onCheckedChange = { onConfigChange(config.copy(onlyIfFallback = it)) },
+            )
+            Text(
+                text = stringResource(R.string.panel_switch_theme_only_if_fallback),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        Text(
+            text = stringResource(R.string.panel_switch_theme_only_if_fallback_tip),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

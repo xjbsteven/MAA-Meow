@@ -2660,6 +2660,8 @@ MAA 不会因为取消勾选此选项而提前在局内结束探索</string>
     <string name="maa_switch_theme_locked">主题尚未解锁：%1$s</string>
     <string name="maa_switch_theme_not_found">未找到主题：%1$s</string>
     <string name="panel_switch_theme_tip">填写游戏内显示的主页主题名称，语言需与游戏一致。每次随机选择一个候选，重复填写可提高抽取概率；留空则跳过。</string>
+    <string name="panel_switch_theme_only_if_fallback">仅在本轮发生过自动主题兜底后执行</string>
+    <string name="panel_switch_theme_only_if_fallback_tip">适合放在任务链末尾作为恢复主题任务：只有前面的任务因主界面主题识别失败而实际触发过自动切换时才执行；未触发则直接跳过。</string>
     <string name="panel_switch_theme_candidate">候选主题 %1$d</string>
     <string name="panel_switch_theme_add">添加候选主题</string>
     <string name="panel_switch_theme_remove">移除候选主题 %1$d</string>

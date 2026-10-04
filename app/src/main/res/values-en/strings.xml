@@ -2603,6 +2603,8 @@ MAA will not end an in-progress exploration early because this option is uncheck
     <string name="maa_switch_theme_locked">Theme is locked: %1$s</string>
     <string name="maa_switch_theme_not_found">Theme not found: %1$s</string>
     <string name="panel_switch_theme_tip">Enter home screen theme names as shown in the game, using the game language. One entry is chosen at random each run. Repeat a name to increase its chance; leave the list empty to skip.</string>
+    <string name="panel_switch_theme_only_if_fallback">Run only after an automatic theme fallback in this batch</string>
+    <string name="panel_switch_theme_only_if_fallback_tip">Use this as a restore-theme task at the end of a task chain. It runs only if an earlier task actually triggered the automatic fallback after home-screen theme recognition failed; otherwise it is skipped.</string>
     <string name="panel_switch_theme_candidate">Theme candidate %1$d</string>
     <string name="panel_switch_theme_add">Add theme candidate</string>
     <string name="panel_switch_theme_remove">Remove theme candidate %1$d</string>
