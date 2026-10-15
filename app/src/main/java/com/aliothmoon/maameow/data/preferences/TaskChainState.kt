@@ -14,6 +14,7 @@ import com.aliothmoon.maameow.data.model.MallConfig
 import com.aliothmoon.maameow.data.model.OperProgressConfig
 import com.aliothmoon.maameow.data.model.OperProgressResult
 import com.aliothmoon.maameow.data.model.RecruitConfig
+import com.aliothmoon.maameow.data.model.RecruitProfileMigration
 import com.aliothmoon.maameow.data.model.TaskChainNode
 import com.aliothmoon.maameow.data.model.TaskParamProvider
 import com.aliothmoon.maameow.data.model.TaskProfile
@@ -184,7 +185,7 @@ class TaskChainState(
                 val prefs = context.store.data.first()
 
                 val storedProfiles = prefs[PROFILES_KEY]?.let {
-                    runCatching { json.decodeFromString<List<TaskProfile>>(it) }.onFailure { e ->
+                    runCatching { json.decodeFromString<List<TaskProfile>>(RecruitProfileMigration.migrate(it, json)) }.onFailure { e ->
                         Timber.e(e, "TaskChainState decodeFromString error")
                     }.getOrNull()
                 }?.migrated()
