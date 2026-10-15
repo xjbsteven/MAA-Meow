@@ -23,7 +23,8 @@ class StationPresetRecycleTest {
     fun recycleIsSelectableAndIncludedWhenSelectingAll() {
         val layout = StationPresetLayout()
         assertTrue(StationPresetRoomList.rooms(layout).any { it.id == "Recycle" })
-        assertTrue(StationPresetRoomList.defaultSelection(layout).contains("Recycle"))
+        assertFalse(StationPresetRoomList.defaultSelection(layout).contains("Recycle"))
+        assertTrue(StationPresetRoomList.allSelection(layout).contains("Recycle"))
     }
 
     @Test
