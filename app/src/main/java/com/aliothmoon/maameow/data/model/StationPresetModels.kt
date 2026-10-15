@@ -66,7 +66,11 @@ object StationPresetRoomList {
         return list
     }
 
+    // 回收站不是所有账号都已建造的设施；新配置默认不勾选，避免无意切换缺失的设施。
     fun defaultSelection(layout: StationPresetLayout): List<String> =
+        rooms(layout).map { it.id }.filterNot { it == "Recycle" }
+
+    fun allSelection(layout: StationPresetLayout): List<String> =
         rooms(layout).map { it.id }
 
     fun pruneSelection(selection: List<String>, layout: StationPresetLayout): List<String> {
