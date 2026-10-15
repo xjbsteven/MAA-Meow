@@ -62,6 +62,7 @@ object StationPresetRoomList {
             list += StationPresetRoom("Power$index")
         }
         list += StationPresetRoom("Office")
+        list += StationPresetRoom("Recycle")
         return list
     }
 
