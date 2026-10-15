@@ -2,6 +2,7 @@ package com.aliothmoon.maameow.data.preferences
 
 import com.aliothmoon.maameow.constant.OFFICIAL_SHIZUKU_PACKAGE
 import com.aliothmoon.maameow.data.model.InfrastConfig
+import com.aliothmoon.maameow.data.model.RecruitProfileMigration
 import com.aliothmoon.maameow.data.model.TaskProfile
 import com.aliothmoon.maameow.data.notification.NotificationSettings
 import com.aliothmoon.maameow.data.notification.NotificationSettingsManager
@@ -59,7 +60,7 @@ class ConfigBackupManager(
      */
     suspend fun importFrom(inputStream: InputStream) = withContext(Dispatchers.IO) {
         val content = inputStream.bufferedReader().use { it.readText() }
-        val backup = json.decodeFromString(ConfigBackup.serializer(), content)
+        val backup = json.decodeFromString(ConfigBackup.serializer(), RecruitProfileMigration.migrate(content, json))
         require(backup.version <= CURRENT_VERSION) {
             "不支持的备份版本: ${backup.version}，当前最高支持: $CURRENT_VERSION"
         }
