@@ -235,6 +235,9 @@ fun InfrastConfigPanel(
                                 }
                             }
                             item {
+                                BaseRewardsAutoCollectionSection(config, onConfigChange)
+                            }
+                            item {
                                 OriginiumShardAutoReplenishmentSection(config, onConfigChange)
                             }
                             item {
@@ -1531,6 +1534,30 @@ private fun DormFilterNotStationedSection(
         ExpandableTipContent(
             visible = tipExpanded,
             tipText = stringResource(R.string.panel_infrast_dorm_filter_not_stationed_tip)
+        )
+    }
+}
+
+/**
+ * Entering the base once triggers the existing full overview reward collection.
+ */
+@Composable
+private fun BaseRewardsAutoCollectionSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top
+    ) {
+        Checkbox(
+            checked = config.collectBaseRewards,
+            onCheckedChange = { onConfigChange(config.copy(collectBaseRewards = it)) },
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.panel_infrast_auto_collect_rewards),
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
         )
     }
 }
