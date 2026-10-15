@@ -692,6 +692,7 @@ private fun stationPresetRoomLabel(roomId: String): String = when (roomId) {
     "Control" -> stringResource(R.string.panel_infrast_room_control)
     "Reception" -> stringResource(R.string.panel_infrast_room_reception)
     "Office" -> stringResource(R.string.panel_infrast_room_office)
+    "Recycle" -> stringResource(R.string.panel_infrast_room_recycle)
     else -> when {
         roomId.startsWith("Mfg") -> stringResource(R.string.panel_infrast_room_mfg) + roomId.removePrefix("Mfg")
         roomId.startsWith("Trade") -> stringResource(R.string.panel_infrast_room_trade) + roomId.removePrefix("Trade")
