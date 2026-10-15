@@ -1095,6 +1095,7 @@
     <string name="panel_infrast_room_dorm">宿舍</string>
     <string name="panel_infrast_room_processing">加工站</string>
     <string name="panel_infrast_room_training">训练室</string>
+    <string name="panel_infrast_room_recycle">回收站</string>
     <string name="panel_infrast_room_assistant_change">副手换人</string>
     <string name="panel_infrast_dorm_trust">宿舍空余位置蹭信赖</string>
     <string name="panel_infrast_dorm_filter_not_stationed">不将已进驻的干员放入宿舍</string>

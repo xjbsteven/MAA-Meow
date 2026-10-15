@@ -1041,6 +1041,7 @@
     <string name="panel_infrast_room_dorm">Dormitory</string>
     <string name="panel_infrast_room_processing">Workshop</string>
     <string name="panel_infrast_room_training">Training Room</string>
+    <string name="panel_infrast_room_recycle">Recycling Station</string>
     <string name="panel_infrast_room_assistant_change">Assistant Change</string>
     <string name="panel_infrast_dorm_trust">Trust farming in Dormitory</string>
     <string name="panel_infrast_dorm_filter_not_stationed">Do not move stationed operators into dorms</string>

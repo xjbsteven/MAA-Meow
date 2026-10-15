@@ -28,6 +28,9 @@ enum class InfrastRoomType {
     /** 训练室 */
     Training,
 
+    /** 回收站：官方 Core 的 Recycle 设施 */
+    Recycle,
+
     /** 副手换人(core ≥ v6.18.0-beta.1，旧 core 会拒掉整个基建任务) */
     AssistantChange;
 
