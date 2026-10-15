@@ -518,7 +518,7 @@ private fun StationPresetRoomSection(
                     modifier = Modifier.clickable {
                         onConfigChange(
                             config.copy(
-                                presetSelectedRooms = StationPresetRoomList.defaultSelection(config.presetLayout)
+                                presetSelectedRooms = StationPresetRoomList.allSelection(config.presetLayout)
                             )
                         )
                     }
