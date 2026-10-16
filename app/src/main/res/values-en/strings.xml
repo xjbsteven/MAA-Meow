@@ -1047,6 +1047,7 @@
     <string name="panel_infrast_dorm_trust">Trust farming in Dormitory</string>
     <string name="panel_infrast_dorm_filter_not_stationed">Do not move stationed operators into dorms</string>
     <string name="panel_infrast_dorm_filter_not_stationed_tip">When enabled, operators such as Irene and Logos will not be removed from the Training Room; stationed operators with low mood are swapped out by their own facility shift and then move into a dormitory to rest.</string>
+    <string name="panel_infrast_auto_collect_rewards">Automatically collect all base rewards</string>
     <string name="panel_infrast_originium_shard_auto_replenishment">Originium Shard auto replenishment</string>
     <string name="panel_infrast_reception_message_board">Credit collection from message board in Reception Room</string>
     <string name="panel_infrast_reception_clue_exchange">Conduct Clue Exchange</string>

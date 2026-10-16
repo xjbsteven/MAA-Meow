@@ -13,9 +13,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CORE_REPO = Path(os.environ.get('MAA_CORE_REPO', str(ROOT.parent / 'MaaAssistantArknights')))
-CORE_SHA = 'ee8a1ad24fc59bd2623809d95998f540796e6fc5'
-CORE_VERSION = 'v6.17.3-alpha.1-custom.ee8a1ad24f'
-CORE_SHA256 = 'dca8278869009d5a8d12ce132d4862139d5e962a1cfd510385ee90646ccf3bbc'
+CORE_SHA = '02f6a195c2df1bee3db2867a7421e28ff79bdf42'
+CORE_VERSION = 'v6.17.3-alpha.1-custom.02f6a195c2'
+CORE_SHA256 = '6d9b6f044f96b6baae36b0ae93410842bdd97d809829975853d6f7fb603b82de'
+UTILS_SHA256 = '0ec9f763c8ba66bf53f6e8d14307e1f66241a9ff63ef07a953d00d649434fd73'
 RUNTIME_SHA256 = {
     'libMaaAndroidNativeControlUnit.so': '40eee689dd7fea90d9da7350b78bb5de0bcdc344c75fa6875f73be3a6254e8ce',
     'libonnxruntime.so': '71c92e5779b04cfcc234aff8452d08010c8a8b13982f5e32954e380037c5e057',
@@ -38,7 +39,7 @@ def main() -> None:
         raise SystemExit('Core binary SHA-256 mismatch; rebuild at fixed commit')
     if CORE_VERSION.encode() not in core.read_bytes():
         raise SystemExit('Core binary version mismatch')
-    if not utils.is_file():
+    if not utils.is_file() or hashlib.sha256(utils.read_bytes()).hexdigest() != UTILS_SHA256:
         raise SystemExit('Matching libMaaUtils.so missing')
     with tempfile.TemporaryDirectory(prefix='maa-core-resource-') as tmp:
         archive = Path(tmp) / 'resource.tar'
@@ -72,7 +73,7 @@ def main() -> None:
         'core_tree': run('git', '-C', str(CORE_REPO), 'rev-parse', CORE_SHA + '^{tree}'),
         'resource_files': {
             str(path.relative_to(RESOURCE)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in RESOURCE.rglob('*') if path.is_file() and '.ncnn.' not in path.name
+            for path in RESOURCE.rglob('*') if path.is_file()
         },
     }
     (ROOT / '.maa-resource-identity.json').write_text(json.dumps(identity, sort_keys=True))
