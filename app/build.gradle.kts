@@ -85,7 +85,7 @@ android {
         minSdk = 28
         targetSdk = 36
         versionCode = (findProperty("maa.customVersionCode") as String?)?.toIntOrNull() ?: gitVersionCode
-        versionName = (findProperty("maa.customVersionName") as String?) ?: "$gitVersionName-custom.02f6a195c2"
+        versionName = (findProperty("maa.customVersionName") as String?) ?: "$gitVersionName-custom.af669690a0"
         println("Build version: versionCode=$versionCode, versionName=$versionName")
         ndkVersion = "29.0.13113456"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
