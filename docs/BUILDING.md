@@ -1,66 +1,97 @@
 # 固定 Core 的 Android arm64 构建
 
-本文件记录 `Aliothmoon/MAA-Meow@ad0c95b2230f9d3aa10d546dc0d226e83d4988a8` 上重建自定义 APK 的流程。Android 改动以本仓库交付 commit 为准。旧版 `scripts/setup_maa_core.py` 会下载最新 Core，**此构建不要运行它**。
+本文件对应个人仓库 `xjbsteven/MAA-Meow` 的 `feat/recycle-station-preset-20261015` 分支、回收站领奖弹窗修复交付 v909。Android 起点为 `ea0b44067c760f6020364c45f9f12e2ddb93d824`；最终提交见 APK 交付清单。不要运行会覆盖自定义 Core 的 `scripts/setup_maa_core.py`，不要合并两个草稿 PR。
 
-## 环境与来源
+## 精确来源
 
-本机沿用环境：`JAVA_HOME=$PWD/.build-tools/jdk-25/Contents/Home`、`ANDROID_HOME=$PWD/.build-tools/android-sdk`、`GRADLE_USER_HOME=$PWD/.build-tools/gradle-home`。
+- Core HEAD：`af669690a02a4d58304f03cd294eb60e6bdde0cb`。
+- Core Git tree：`3f4ffe19b37e393fe5988db0385f9b7fa4c1e7a3`。
+- Release Pipeline：<https://github.com/xjbsteven/MaaAssistantArknights/actions/runs/39775167175>，artifact `MAAComponent-android-arm64` / ID `12424308843`。
+- Smoke Test：<https://github.com/xjbsteven/MaaAssistantArknights/actions/runs/39775167066>。
+- 该 PR 工作流实际编译临时合并提交 `ac8b4a626324730eb82fb783d052607315afe4c8`，Core 内嵌版本与压缩包版本均为 `v0.0.1-ac8b4a626`。通过 GitHub Git commit API 确认它与指定 HEAD 的 **完整 Git tree 完全相同**，因此可以复用，未重新编译 Core，也未修改或伪造二进制版本字符串。
+- artifact 内原始 `resource/` 的全部 10,028 个文件逐一匹配指定提交的 Git blob SHA-1；部署脚本还从递归 tree 列表重新计算全部目录及根 tree SHA-1，拒绝不完整或不一致的元数据。
 
-- macOS、JDK 25、Android SDK 37、NDK 29.0.13113456；设置 `JAVA_HOME`、`ANDROID_HOME`，在 `local.properties` 写 `sdk.dir`。
-- Android upstream 固定 SHA：`ad0c95b2230f9d3aa10d546dc0d226e83d4988a8`，不要在本次重建时重新追踪 `main`。
-- Core upstream SHA：`9e56e82c0d1577e73603d8be676686bbfeb5f13d`。
-- 自定义 Core 仓库 `xjbsteven/MaaAssistantArknights` 中固定 commit：`ee8a1ad24fc59bd2623809d95998f540796e6fc5`，tree `6a3b704b5a664c445971b11ca668ffee0d9f7444`。
-- Core 版本：`v6.17.3-alpha.1-custom.ee8a1ad24f`。
+## 环境与部署
 
-默认 Core 仓库位于 Android 仓库的 `../MaaAssistantArknights`；可用 `MAA_CORE_REPO` 指定其他路径。部署脚本只读该仓库的 Git 对象和已构建的 `build-android/bin`，不会切换或改动其工作树。
-
-## 构建 Core
-
-在固定 Core commit 的独立 checkout 中运行：
+本机沿用 JDK 25、SDK 37、NDK `29.0.13113456`、Android JNI CMake `3.22.1`、Gradle `9.6.0`。Python 使用本地 `.venv`。设置：
 
 ```bash
-cmake --preset android-arm64 -B build-android \
-  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_HOME/ndk/29.0.13113456/build/cmake/android.toolchain.cmake" \
-  -DBUILD_DEBUG_DEMO=OFF -DBUILD_RESOURCE_UPDATER=OFF -DBUILD_MAA_UTILS=ON \
-  -DMAA_HASH_VERSION=v6.17.3-alpha.1-custom.ee8a1ad24f
-cmake --build build-android --target clean
-CCACHE_DISABLE=1 cmake --build build-android --target MaaCore MaaUtils -j 6
+export JAVA_HOME="$PWD/.build-tools/jdk-25/Contents/Home"
+export ANDROID_HOME="$PWD/.build-tools/android-sdk"
+export ANDROID_USER_HOME="$PWD/.build-tools/android-home/.android"
+export GRADLE_USER_HOME="$PWD/.build-tools/gradle-home"
+export DEVELOPER_DIR=/Library/Developer/CommandLineTools
+export GIT_EXEC_PATH=/Library/Developer/CommandLineTools/usr/libexec/git-core
+export PATH="$JAVA_HOME/bin:$PWD/.build-tools/bin:$PWD/.venv/bin:$PATH"
 ```
 
-确认 `build-android/bin/libMaaCore.so` SHA-256 为 `dca8278869009d5a8d12ce132d4862139d5e962a1cfd510385ee90646ccf3bbc`。同目录的 `libMaaUtils.so` 一同部署。若 checkout 不是固定 commit，请使用独立 worktree 构建；切勿把别的 commit 构建出的 so 冒充固定产物。
+`.build-tools/bin/git` 为本机 CommandLineTools 的 Git，避免未接受 Xcode license 的默认 Git。`local.properties` 中 `sdk.dir` 指向本地 SDK。以上不修改系统配置。
 
-## 部署与校验
+下载并解压指定 artifact，再获取固定 tree 元数据；需要具备 artifact 下载权限的 GitHub 身份。本机 CLI 下载返回 401，本次实际通过 GitHub 连接器下载相同 artifact，ZIP 内容校验与解压成功。
 
 ```bash
-python3 scripts/deploy_fixed_custom_core.py
-python3 scripts/verify_fixed_custom_core.py
+gh run download 39775167175 -R xjbsteven/MaaAssistantArknights \
+  -n MAAComponent-android-arm64 -D .maa-cache/core-af669690-artifact
+tar -xzf .maa-cache/core-af669690-artifact/MAAComponent-v0.0.1-ac8b4a626-android-arm64.tar.gz \
+  -C .maa-cache/core-af669690-artifact
+gh api 'repos/xjbsteven/MaaAssistantArknights/git/trees/3f4ffe19b37e393fe5988db0385f9b7fa4c1e7a3?recursive=1' \
+  > .maa-cache/core-af669690-tree.json
+python scripts/deploy_fixed_custom_core.py
+python scripts/verify_fixed_custom_core.py
 ```
 
-部署脚本用 `git archive` 从固定 commit 导出完整 `resource/`，清除旧 `MaaResource`，复制 Core 与 Utils so，并写 `.maaversion`。OCR ONNX 与 templates/tasks 均来自相同 Git tree。Android OCR runtime 从同一个 Core sibling 仓库的 `install/` 复制，部署与构建前按脚本内四个固定 SHA-256 核对（Android control unit、onnxruntime、OpenCV、fastdeploy）；NCNN 由项目 `scripts/convert_ocr_ncnn.py` 从此 commit 的 OCR ONNX 生成，缓存键包含 ONNX 哈希和转换配方。至少检查 PaddleOCR/PaddleCharOCR 的 `det`、`rec` `.ncnn.param/.bin`；不能跳过转换。
+可用 `MAA_CORE_ARTIFACT` 指向解压后包含 `libMaaCore.so`、`libMaaUtils.so`、运行库与 `resource/` 的目录；`MAA_CORE_TREE_JSON` 指向递归 Git tree JSON。脚本先核对所有库哈希及资源来源，再替换 staged 文件。不会读取或切换相邻 Core 仓库工作树。
 
-`verifyFixedCore` 在 Gradle `preBuild` 前执行，要求 `.maaversion`、so SHA-256、嵌入版本、`tasks/tasks.json`、OCR runtime 与 NCNN 都存在。资源清单生成时过滤 `.DS_Store`、`._*`、`__MACOSX`，运行时提取再过滤一次。
+固定库 SHA-256：
 
-## 测试、构建、验收
+- `libMaaCore.so`: `f91d781087c94ab20d8383ee4148f404725f100f2c950c125d0231d16a79520f`
+- `libMaaUtils.so`: `b82a0711998a4eb003fef86c99affaf20dd9841af8887191f3401242562db1e8`
+- `libMaaAndroidNativeControlUnit.so`: `d81b3ce2cee4bbaf6b74762d703f4e0644461af41e3429fa7be44fa52f34961d`
+- `libonnxruntime.so`: `71c92e5779b04cfcc234aff8452d08010c8a8b13982f5e32954e380037c5e057`
+- `libopencv_world4.so`: `909caa9ab62d20d206e8fa3734d6b0877fcd36db0c01570a546fdcdf0cd7e58e`
+- `libfastdeploy_ppocr.so`: `6ccc3608b21a5e49e7acc41f12ce73c2671ab388ed356a73b3fea1628f482c5b`
+
+`libc++_shared.so` 由 Android JNI 使用的 NDK 提供，不复制 artifact 中的同名库；NDK 原文件 SHA-256 为 `259e897588d798546fb5721eec1983c98a6a46358a5fa864b170d95c7d77fec3`。APK 校验脚本将它与真实 NDK 文件比较。
+
+NCNN 转换沿用配方 2，缓存按源 ONNX 内容哈希选择。此次 8 组模型全部命中缓存；移除 8 个源 ONNX 后，最终 10,036 个资源文件包含 16 个 `.ncnn.param/.bin`。PaddleOCR、PaddleCharOCR 的 det/rec 均齐全。`.maa-resource-identity.json` 记录源 HEAD、Git tree、实际编译 SHA、run/artifact ID 及转换后每个文件的 SHA-256；这些生成输入与库不提交到 Git。
+
+## 测试与 APK 核验
 
 ```bash
-ANDROID_USER_HOME="$PWD/.build-tools/android-home/.android" \
-  bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
-  -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=907 \
-  -Pmaa.customVersionName=0.22.0-custom.ee8a1ad24f.7
-python3 scripts/verify_fixed_custom_core.py
-unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'lib/arm64-v8a/libMaaCore.so|MaaResource/tasks/tasks.json|\.ncnn\.(param|bin)'
-unzip -l app/build/outputs/apk/debug/app-debug.apk | rg 'DS_Store|__MACOSX|/\._' # 必须无输出
-shasum -a 256 app/build/outputs/apk/debug/app-debug.apk
+bash gradlew :app:testDebugUnitTest :app:lintDebug :app:assembleDebug \
+  -Pmaa.abi=arm64-v8a -Pmaa.customVersionCode=909 \
+  -Pmaa.customVersionName=0.22.0-custom.af669690a0.909
+python scripts/verify_fixed_custom_apk.py app/build/outputs/apk/debug/app-debug.apk
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
+  app/build/outputs/apk/debug/app-debug.apk
+"$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging app/build/outputs/apk/debug/app-debug.apk
 ```
 
-使用 SDK build-tools 36.0.0 的 `aapt dump badging` 或 `apkanalyzer manifest application-id/version-code/version-name` 核对包信息，再用 `unzip -p` 抽出 `libMaaCore.so` 验证 SHA-256 与嵌入版本。构建产物是 debug 签名 APK，构建参数显式固定 versionCode 907（高于上一包 906）与 versionName `0.22.0-custom.ee8a1ad24f.7`；不传两个参数时仍使用官方 Git 计数与描述策略。不要使用最新官方 Core 自动覆盖 staged 文件。
+2026-10-23 实际结果：BUILD SUCCESSFUL。202 个测试类共 1,374 项，0 失败、0 错误、0 跳过；`BaseRewardCollectionParamsTest`、`StationPresetRecycleTest` 各 3 项通过。Lint 0 Error、173 Warning、2 Hint。Gradle 日志确认 `verifyFixedCore` 实际执行并通过，没有跳过校验。
 
-> `.maaversion`、staged `MaaResource` 与 native so 是本地生成输入，不应由 Git 提交；交付 commit 加本文件与指定 Core commit 可重建它们。
+实际 APK 检查：
 
-本次交付 APK SHA-256：`fa5fe20ed429759b23ad5c164ac301efbb543d5c7a713e695958471ff3b7f99c`（`app/build/outputs/apk/debug/app-debug.apk`，复制为 `dist/MAA-Meow-v907-arm64-cover-install.apk`）。
+- `libMaaCore.so` 与指定 artifact 原文件逐字节相同；其他 staged 库和 NDK C++ runtime 与 NDK `llvm-strip --strip-unneeded` 输出逐字节一致，交付 JSON 保留源哈希与包内哈希。
+- 全部 10,036 个资源文件逐个核对 SHA-256，文件集合完全相同；没有 macOS 垃圾文件。APK 文件名按 Android 的 UTF-8 路径编码读取。
+- Core 中存在 `ClickSelfRecord`、`ClickRecorded`，任务资源确认：材料产出 OCR 后记录实际点击中心；获得物资弹窗关闭坐标为 `[645,665,1,1]`；fallback 使用 `ClickRecorded` 且没有固定坐标。普通奖励仍包括可收获、订单交付、员信赖。
+- 所有打包原生库为 AArch64，DT_NEEDED 依赖由 APK 或 Android 系统提供。
+- applicationId `com.aliothmoon.maameow`；versionCode `909`；versionName `0.22.0-custom.af669690a0.909`；minSdk 28。
 
-## 覆盖安装签名
+## 签名与交付
 
-旧 447 debug APK 的签名证书 SHA-256 是 `0cd27521db91bace8e72f8c862e0242b841c03cf0b49b40f15b06c2acaf79b22`。本轮首次 APK 误用了 `~/.android/debug.keystore`（证书 `0db81adda822e33d9de3b59e7077599765b91aef3dd9216dcea8a2f87d05794e`），因此 Android 拒绝覆盖安装。可覆盖安装包改用本机已有的 `.build-tools/android-home/.android/debug.keystore`；该密钥是用户本地文件，不在 Git 中。运行 Gradle 时必须设置上面的 `ANDROID_USER_HOME`。
+使用用户已有 `.build-tools/android-home/.android/debug.keystore`，与旧覆盖安装 APK 的证书 SHA-256 相同：`0cd27521db91bace8e72f8c862e0242b841c03cf0b49b40f15b06c2acaf79b22`。RSA 2048，APK Signature Scheme v2 验证通过。密钥不提交。
 
-构建后用 `apksigner verify --print-certs` 对照旧 APK 与新 APK 的签名证书 SHA-256，必须完全相同；再检查 `versionCode` 高于旧包。没有相同的私钥时无法从 Git commit 单独重现可覆盖安装签名，只能新装或由密钥持有人签名。
+APK：`dist/MAA-Meow-v909-core-af669690a0-arm64-debug.apk`；302,784,046 字节（288.76 MiB）。SHA-256：`1196a33cdb6dcaeab10b97ef1219e31d7d23ad6549f43a6fd26476cf0f08386f`。同目录 `.sha256`、`.verification.json` 与 `delivery-v909/` 保留交付信息、身份清单和构建/签名/Lint 日志；均为本机文件。
+
+## 真机边界
+
+ADB 检查无设备连接，未安装、启动或验证真实弹窗，也没有真实任务执行顺序的 Debug 日志。静态校验、依赖闭包和单测不代表 Android 原生库加载或真实界面验收通过。以下全部待用户验证：
+
+1. 仅开启基建奖励自动收取，其他辅助选项关闭，普通奖励仍可收取。
+2. 回收站材料产出领取后，出现奖励弹窗时正常关闭。
+3. 获得物资 OCR 失败时复点原领取位置，不进入其他设置。
+4. 继续处理制造站、贸易站、干员信赖等其他奖励。
+5. 奖励已领取完毕时不多点、不误入其他界面。
+6. 回收站预设、宿舍/回收站换班、无人机、自动补货及此前自定义功能无回归。
+
+验收时保留 Debug 日志，重点记录 `InfrastRecycleReward`、`InfrastRecycleRewardPopup`、`InfrastRecycleRewardFallback` 的执行顺序。此次未修改这些业务实现，也未额外运行 Core 全量测试；复用指定成功的 CI 产物。

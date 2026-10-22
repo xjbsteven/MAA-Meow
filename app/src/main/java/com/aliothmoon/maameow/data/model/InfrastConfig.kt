@@ -155,6 +155,9 @@ data class InfrastConfig(
      */
     val originiumShardAutoReplenishment: Boolean = true,
 
+    /** Entering the base collects every reward supported by the overview one-click collection. */
+    val collectBaseRewards: Boolean = true,
+
     /**
      * 会客室留言板领取信用
      * 对应 WPF: receptionMessageBoard (bool)
@@ -280,6 +283,7 @@ data class InfrastConfig(
             put("dorm_notstationed_enabled", dormFilterNotStationedEnabled)
             put("dorm_trust_enabled", dormTrustEnabled)
             put("replenish", originiumShardAutoReplenishment)
+            put("collect", collectBaseRewards)
             put("reception_message_board", receptionMessageBoard)
             put("reception_receive_clue", receptionReceiveClue)
             put("reception_clue_exchange", receptionClueExchange)

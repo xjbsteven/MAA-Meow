@@ -1101,6 +1101,7 @@
     <string name="panel_infrast_dorm_trust">宿舍空余位置蹭信赖</string>
     <string name="panel_infrast_dorm_filter_not_stationed">不将已进驻的干员放入宿舍</string>
     <string name="panel_infrast_dorm_filter_not_stationed_tip">勾选则不会将艾丽妮、逻各斯等干员从训练室移除；低心情的已进驻干员由其所在设施换班换出后再进驻宿舍休息</string>
+    <string name="panel_infrast_auto_collect_rewards">基建奖励自动收取</string>
     <string name="panel_infrast_originium_shard_auto_replenishment">源石碎片自动补货</string>
     <string name="panel_infrast_reception_message_board">会客室信息板收取信用</string>
     <string name="panel_infrast_reception_clue_exchange">进行线索交流</string>

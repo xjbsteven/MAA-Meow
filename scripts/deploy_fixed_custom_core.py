@@ -7,17 +7,20 @@ import json
 import os
 import shutil
 import subprocess
-import tarfile
-import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-CORE_REPO = Path(os.environ.get('MAA_CORE_REPO', str(ROOT.parent / 'MaaAssistantArknights')))
-CORE_SHA = 'ee8a1ad24fc59bd2623809d95998f540796e6fc5'
-CORE_VERSION = 'v6.17.3-alpha.1-custom.ee8a1ad24f'
-CORE_SHA256 = 'dca8278869009d5a8d12ce132d4862139d5e962a1cfd510385ee90646ccf3bbc'
+CORE_SHA = 'af669690a02a4d58304f03cd294eb60e6bdde0cb'
+# CI built the PR merge commit; its complete source tree equals CORE_SHA's tree.
+CORE_TREE = '3f4ffe19b37e393fe5988db0385f9b7fa4c1e7a3'
+BUILD_SHA = 'ac8b4a626324730eb82fb783d052607315afe4c8'
+ARTIFACT = Path(os.environ.get('MAA_CORE_ARTIFACT', str(ROOT / '.maa-cache/core-af669690-artifact')))
+TREE_JSON = Path(os.environ.get('MAA_CORE_TREE_JSON', str(ROOT / '.maa-cache/core-af669690-tree.json')))
+CORE_VERSION = 'v0.0.1-ac8b4a626'
+CORE_SHA256 = 'f91d781087c94ab20d8383ee4148f404725f100f2c950c125d0231d16a79520f'
+UTILS_SHA256 = 'b82a0711998a4eb003fef86c99affaf20dd9841af8887191f3401242562db1e8'
 RUNTIME_SHA256 = {
-    'libMaaAndroidNativeControlUnit.so': '40eee689dd7fea90d9da7350b78bb5de0bcdc344c75fa6875f73be3a6254e8ce',
+    'libMaaAndroidNativeControlUnit.so': 'd81b3ce2cee4bbaf6b74762d703f4e0644461af41e3429fa7be44fa52f34961d',
     'libonnxruntime.so': '71c92e5779b04cfcc234aff8452d08010c8a8b13982f5e32954e380037c5e057',
     'libopencv_world4.so': '909caa9ab62d20d206e8fa3734d6b0877fcd36db0c01570a546fdcdf0cd7e58e',
     'libfastdeploy_ppocr.so': '6ccc3608b21a5e49e7acc41f12ce73c2671ab388ed356a73b3fea1628f482c5b',
@@ -25,39 +28,52 @@ RUNTIME_SHA256 = {
 RESOURCE = ROOT / 'app/src/main/assets/MaaSync/MaaResource'
 NATIVE = ROOT / 'app/src/main/jniLibs/arm64-v8a'
 
-def run(*args: str) -> str:
-    return subprocess.check_output(args, text=True).strip()
-
 def main() -> None:
-    actual = run('git', '-C', str(CORE_REPO), 'rev-parse', CORE_SHA + '^{commit}')
-    if actual != CORE_SHA:
-        raise SystemExit('CUSTOM_CORE_SHA not reachable')
-    core = CORE_REPO / 'build-android/bin/libMaaCore.so'
-    utils = CORE_REPO / 'build-android/bin/libMaaUtils.so'
+    core = ARTIFACT / 'libMaaCore.so'
+    utils = ARTIFACT / 'libMaaUtils.so'
     if hashlib.sha256(core.read_bytes()).hexdigest() != CORE_SHA256:
         raise SystemExit('Core binary SHA-256 mismatch; rebuild at fixed commit')
     if CORE_VERSION.encode() not in core.read_bytes():
         raise SystemExit('Core binary version mismatch')
-    if not utils.is_file():
+    if not utils.is_file() or hashlib.sha256(utils.read_bytes()).hexdigest() != UTILS_SHA256:
         raise SystemExit('Matching libMaaUtils.so missing')
-    with tempfile.TemporaryDirectory(prefix='maa-core-resource-') as tmp:
-        archive = Path(tmp) / 'resource.tar'
-        with archive.open('wb') as output:
-            subprocess.run(['git', '-C', str(CORE_REPO), 'archive', '--format=tar', CORE_SHA, 'resource'], stdout=output, check=True)
-        with tarfile.open(archive) as tar:
-            tar.extractall(tmp, filter='data')
-        source = Path(tmp) / 'resource'
-        if not (source / 'tasks/tasks.json').is_file():
-            raise SystemExit('Core task resource missing')
-        shutil.rmtree(RESOURCE, ignore_errors=True)
-        shutil.copytree(source, RESOURCE, ignore=shutil.ignore_patterns('.DS_Store', '._*', '__MACOSX'))
-    shutil.copy2(core, NATIVE / 'libMaaCore.so')
-    shutil.copy2(utils, NATIVE / 'libMaaUtils.so')
+    # Reconstruct every Git tree from the API listing, rather than trusting the
+    # listing's top-level SHA (GitHub can echo the requested commit SHA there).
+    metadata = json.loads(TREE_JSON.read_text())
+    if metadata.get('truncated', True):
+        raise SystemExit('Incomplete Git tree metadata')
+    directories: dict[str, list] = {'': []}
+    for entry in metadata['tree']:
+        parent, _, name = entry['path'].rpartition('/')
+        directories.setdefault(parent, []).append((name, entry))
+    for directory, entries in directories.items():
+        data = b''.join(
+            f"{entry['mode'].lstrip('0')} {name}".encode() + b'\0' + bytes.fromhex(entry['sha'])
+            for name, entry in sorted(entries, key=lambda item: item[0] + ('/' if item[1]['type'] == 'tree' else ''))
+        )
+        actual = hashlib.sha1(b'tree ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+        expected = CORE_TREE if not directory else next(e['sha'] for e in metadata['tree'] if e['path'] == directory)
+        if actual != expected:
+            raise SystemExit(f'Git tree metadata mismatch: {directory}')
+    source = ARTIFACT / 'resource'
+    resource_blobs = {e['path'][9:]: e['sha'] for e in metadata['tree'] if e['path'].startswith('resource/') and e['type'] == 'blob'}
+    if {str(p.relative_to(source)) for p in source.rglob('*') if p.is_file()} != set(resource_blobs):
+        raise SystemExit('Artifact resource file set differs from pinned Git tree')
+    for name, expected in resource_blobs.items():
+        data = (source / name).read_bytes()
+        if hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest() != expected:
+            raise SystemExit(f'Artifact resource differs from pinned Git tree: {name}')
     for name, expected in RUNTIME_SHA256.items():
-        runtime = CORE_REPO / 'install' / name
+        runtime = ARTIFACT / name
         if not runtime.is_file() or hashlib.sha256(runtime.read_bytes()).hexdigest() != expected:
             raise SystemExit(f'Pinned Android runtime missing or mismatched: {name}')
-        shutil.copy2(runtime, NATIVE / name)
+    shutil.rmtree(RESOURCE, ignore_errors=True)
+    shutil.copytree(source, RESOURCE)
+    NATIVE.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(core, NATIVE / core.name)
+    shutil.copy2(utils, NATIVE / utils.name)
+    for name in RUNTIME_SHA256:
+        shutil.copy2(ARTIFACT / name, NATIVE / name)
 
     (ROOT / '.maaversion').write_text(CORE_VERSION + '\n')
     # Android OCR uses NCNN models generated from the exact-commit OCR ONNX files.
@@ -69,10 +85,13 @@ def main() -> None:
                     raise SystemExit(f'NCNN incomplete: {package}/{kind}/{ext}')
     identity = {
         'core_sha': CORE_SHA,
-        'core_tree': run('git', '-C', str(CORE_REPO), 'rev-parse', CORE_SHA + '^{tree}'),
+        'core_tree': CORE_TREE,
+        'build_sha': BUILD_SHA,
+        'artifact_id': 12424308843,
+        'run_id': 39775167175,
         'resource_files': {
             str(path.relative_to(RESOURCE)): hashlib.sha256(path.read_bytes()).hexdigest()
-            for path in RESOURCE.rglob('*') if path.is_file() and '.ncnn.' not in path.name
+            for path in RESOURCE.rglob('*') if path.is_file()
         },
     }
     (ROOT / '.maa-resource-identity.json').write_text(json.dumps(identity, sort_keys=True))
