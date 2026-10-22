@@ -48,7 +48,21 @@ def main() -> None:
     require(actual_files == set(identity['resource_files']), 'resource file set mismatch')
     tasks = json.loads((RESOURCE / 'tasks/tasks.json').read_text())
     require('InfrastCollect' in tasks, 'InfrastCollect missing')
-    require(all(text in tasks['InfrastReward']['text'] for text in ('可收获', '订单交付', '员信赖', '材料产出')), 'full collection OCR labels missing')
+    require(
+        all(text in tasks['InfrastReward']['text'] for text in ('可收获', '订单交付', '员信赖')),
+        'normal base collection OCR labels missing',
+    )
+    # 回收站已拆为独立分支：材料产出不再属于普通奖励 OCR 列表。
+    recycle = tasks.get('InfrastRecycleReward', {})
+    popup = tasks.get('InfrastRecycleRewardPopup', {})
+    fallback = tasks.get('InfrastRecycleRewardFallback', {})
+    require(recycle.get('text') == ['材料产出'], 'recycle materials collection OCR label missing')
+    require(recycle.get('action') == 'ClickSelfRecord', 'recycle OCR click must record the button position')
+    require(popup.get('text') == ['获得物资'], 'recycle reward popup recognition missing')
+    require(fallback.get('action') == 'ClickRecorded', 'recycle fallback must replay the recorded button position')
+    require('specificRect' not in fallback, 'recycle fallback must not use guessed fixed coordinates')
+    require('InfrastRecycleRewardFallback' in recycle.get('next', []), 'recycle fallback not reachable')
+    require('InfrastRecycleReward' in tasks['InfrastNotification']['next'], 'recycle collection not linked from the overview')
     junk = [p for p in RESOURCE.rglob('*') if p.name == '.DS_Store' or p.name.startswith('._') or p.name == '__MACOSX']
     require(not junk, f'macOS junk found: {junk[:3]}')
     print(f'Core identity verified: {VERSION} ({SHA256})')
