@@ -239,7 +239,9 @@ data class InfrastConfig(
      *
      * 列表为空表示 UI 尚未成功解析配置文件，此时自动切换流程会跳过。
      */
-    val customPlanNames: List<String> = emptyList()
+    val customPlanNames: List<String> = emptyList(),
+    // Optional one-shot product collection, preserving existing user presets when disabled.
+    val collectOnly: Boolean = false,
 ) : TaskParamProvider, WeeklyScheduled {
 
     fun usesRotationStationPreset(): Boolean =
@@ -298,6 +300,7 @@ data class InfrastConfig(
             put("use_perception_information", mode == InfrastMode.Normal && usePerceptionInformation)
             put("use_worldly_plight", mode == InfrastMode.Normal && useWorldlyPlight)
             put("use_abyssal_hunter", mode == InfrastMode.Normal && useAbyssalHunter)
+            if (collectOnly) put("collect_only", true)
             put("mode", mode.value)
             if (mode == InfrastMode.Rotation) put("rotation_style", rotationStyle.value)
             if (mode == InfrastMode.Custom) {
