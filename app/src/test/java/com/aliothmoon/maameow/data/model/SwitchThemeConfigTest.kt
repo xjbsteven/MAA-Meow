@@ -20,6 +20,19 @@ class SwitchThemeConfigTest {
     }
 
     @Test
+    fun conditionalRestore_emitsFallbackFlagOnlyWhenEnabled() {
+        val enabled = SwitchThemeConfig(themes = listOf("银凇"), onlyIfFallback = true)
+            .toTaskParams(testTaskParamContext())
+            .single()
+        assertEquals("{\"themes\":[\"银凇\"],\"only_if_fallback\":true}", enabled.params)
+
+        val disabled = SwitchThemeConfig(themes = listOf("银凇"))
+            .toTaskParams(testTaskParamContext())
+            .single()
+        assertEquals("{\"themes\":[\"银凇\"]}", disabled.params)
+    }
+
+    @Test
     fun emptyCandidates_skipWithAnExplanation() {
         val logs = CollectingPreflightLogSink()
         val tasks = SwitchThemeConfig(themes = listOf("", "  "))
@@ -34,7 +47,7 @@ class SwitchThemeConfigTest {
 
     @Test
     fun profileRoundTrip_preservesCandidateOrderAndWeights() {
-        val config = SwitchThemeConfig(themes = listOf("夜间", "银凇", "夜间"))
+        val config = SwitchThemeConfig(themes = listOf("夜间", "银凇", "夜间"), onlyIfFallback = true)
         val profile = TaskProfile(
             name = "日常",
             chain = listOf(TaskChainNode(name = "主题", config = config)),
