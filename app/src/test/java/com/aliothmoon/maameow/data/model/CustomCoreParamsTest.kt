@@ -164,4 +164,16 @@ class CustomCoreParamsTest {
         assertEquals(InfrastRotationStyle.StationPreset, base.rotationStyle)
         assertEquals(restored, json.decodeFromString<List<TaskProfile>>(json.encodeToString(restored)))
     }
+    @Test fun collectOnlyIsOptInAndSurvivesProfileSerialization() {
+        val ordinary = InfrastConfig()
+        assertFalse(params(ordinary).containsKey("collect_only"))
+        val collect = ordinary.copy(collectOnly = true)
+        assertTrue(params(collect).getValue("collect_only").jsonPrimitive.boolean)
+        val json = JsonUtils.common
+        val decoded = json.decodeFromString<InfrastConfig>(json.encodeToString(InfrastConfig.serializer(), collect))
+        assertTrue(decoded.collectOnly)
+        assertTrue(params(decoded).getValue("collect_only").jsonPrimitive.boolean)
+        assertFalse(json.decodeFromString<InfrastConfig>("{}").collectOnly)
+    }
+
 }
