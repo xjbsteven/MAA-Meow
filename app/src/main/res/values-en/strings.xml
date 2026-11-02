@@ -2990,4 +2990,5 @@ MAA will not end an in-progress exploration early because this option is uncheck
     <string name="panel_infrast_station_preset_drone_order_pre">Before shift change</string>
     <string name="panel_infrast_station_preset_drone_order_post">After shift change</string>
     <string name="panel_infrast_reception_receive_clue">Receive clues in Reception Room</string>
+    <string name="panel_infrast_collect_only">Collect all infrastructure products only (no shift or drones)</string>
 </resources>
