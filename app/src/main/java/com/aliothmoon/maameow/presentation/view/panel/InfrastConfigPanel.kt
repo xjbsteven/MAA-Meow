@@ -172,6 +172,9 @@ fun InfrastConfigPanel(
                                 InfrastModeSection(config, onConfigChange)
                             }
                             item {
+                                InfrastCollectOnlySection(config, onConfigChange)
+                            }
+                            item {
                                 MaaAnimatedVisibility(
                                     visible = config.mode == InfrastMode.Custom,
                                     enter = expandVertically(),
@@ -1534,6 +1537,25 @@ private fun DormFilterNotStationedSection(
 /**
  * 制造站搓玉自动补货
  */
+@Composable
+private fun InfrastCollectOnlySection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Checkbox(
+            checked = config.collectOnly,
+            onCheckedChange = { onConfigChange(config.copy(collectOnly = it)) },
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.panel_infrast_collect_only),
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+        )
+    }
+}
+
 @Composable
 private fun OriginiumShardAutoReplenishmentSection(
     config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
