@@ -162,6 +162,9 @@ jobs:
           name: lint-report
           path: app/build/reports/lint-results-debug.html
 
+      - name: Run Android unit and custom protocol tests
+        run: ./gradlew :app:testDebugUnitTest --stacktrace
+
       - name: Build Debug APK
         env:
           # fork 的 PR 拿不到 secret，构建出来的包不带遥测
