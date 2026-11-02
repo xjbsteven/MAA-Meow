@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - integration/official-20261102
   pull_request:
     branches:
       - main
@@ -25,7 +26,7 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: macos-26
 
     steps:
       - name: Checkout
@@ -72,6 +73,7 @@ jobs:
         run: |
           TAG_ARG=""
           MAA_TAG="${{ github.event.inputs.maa_tag }}"
+          if [ "${{ github.ref_name }}" = "integration/official-20261102" ]; then MAA_TAG="v6.21.1"; fi
           if [ -n "$MAA_TAG" ] && [ "$MAA_TAG" != "latest" ]; then
             TAG_ARG="--tag $MAA_TAG"
           fi
@@ -86,6 +88,61 @@ jobs:
             MAAFW_ARG="--maafw-tag $MAAFW_TAG"
           fi
           python scripts/setup_maa_core.py --clean $TAG_ARG $REPO_ARG $MAAFW_ARG
+
+      - name: Checkout matching custom Core source
+        if: github.ref_name == 'integration/official-20261102'
+        uses: actions/checkout@v7
+        with:
+          repository: xjbsteven/MaaAssistantArknights
+          ref: integration/official-20261102
+          path: custom-core
+          fetch-depth: 0
+
+      - name: Setup NDK for custom Core
+        if: github.ref_name == 'integration/official-20261102'
+        id: custom-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r29
+
+      - name: Compile and stage matching custom Core
+        if: github.ref_name == 'integration/official-20261102'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd custom-core
+          git submodule update --init --depth 1 src/MaaUtils
+          python3 tools/maadeps-download.py arm64-android
+          CORE_SHA=$(git rev-parse HEAD)
+          CORE_VERSION="v6.21.1-custom.${CORE_SHA:0:12}"
+          cmake -B build --preset android-publish-arm64 \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.custom-ndk.outputs.ndk-path }}/build/cmake/android.toolchain.cmake" \
+            -DMAA_HASH_VERSION="$CORE_VERSION"
+          cmake --build build --parallel 4
+          cmake --install build --prefix install
+          test -s install/libMaaCore.so
+          test -s install/libMaaUtils.so
+          test -s install/resource/tasks/tasks.json
+          cd ..
+          CORE_VERSION="v6.21.1-custom.$(git -C custom-core rev-parse --short=12 HEAD)"
+          cp custom-core/install/libMaaCore.so app/src/main/jniLibs/arm64-v8a/libMaaCore.so
+          cp custom-core/install/libMaaUtils.so app/src/main/jniLibs/arm64-v8a/libMaaUtils.so
+          cp -R custom-core/install/resource/. app/src/main/assets/MaaSync/MaaResource/
+          rm -rf app/src/main/jniLibs/x86_64
+          printf '%s\n' "$CORE_VERSION" > .maaversion
+          python3 - <<'PY'
+          from pathlib import Path
+          import json
+          version = Path('.maaversion').read_text().strip()
+          library = Path('app/src/main/jniLibs/arm64-v8a/libMaaCore.so').read_bytes()
+          assert version.encode() in library, 'APK Core binary is not custom build'
+          tasks = json.loads(Path('app/src/main/assets/MaaSync/MaaResource/tasks/tasks.json').read_text())
+          for key in ('InfrastEnterPresetPage', 'InfrastPresetSwitchButton', 'InfrastRewardRecycleProduct'):
+              assert key in tasks, f'missing Core task {key}'
+          print('Custom Core identity verified:', version)
+          PY
 
       - name: Print MAA Resource version
         run: cat app/src/main/assets/MaaSync/MaaResource/version.json
