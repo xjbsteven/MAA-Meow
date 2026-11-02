@@ -102,6 +102,13 @@ jobs:
           path: custom-core
           fetch-depth: 0
 
+      - name: Smoke-test custom Core helpers
+        if: github.ref_name == 'integration/official-20261102'
+        run: |
+          clang++ -std=c++20 -Wall -Wextra -Werror -I custom-core/src/MaaCore \
+            custom-core/tests/custom/CustomSchedulingLogicSmoke.cpp -o "$RUNNER_TEMP/maa-custom-smoke"
+          "$RUNNER_TEMP/maa-custom-smoke"
+
       - name: Setup NDK for custom Core
         if: github.ref_name == 'integration/official-20261102'
         id: custom-ndk
