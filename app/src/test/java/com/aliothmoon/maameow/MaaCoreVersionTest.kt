@@ -67,4 +67,13 @@ class MaaCoreVersionTest {
         // 缺失 patch 位补 0
         assertTrue(MaaCoreVersion.meetsMinimumRequired("v6.12", current = "v6.12.0"))
     }
+    @Test
+    fun stableCustomCoreShaSatisfiesMatchingStableRequirements() {
+        val custom = "v6.21.1-custom.d498de1587b7"
+        assertTrue(MaaCoreVersion.meetsMinimumRequired("v6.21.1", current = custom))
+        assertTrue(MaaCoreVersion.meetsMinimumRequired("v6.20.0-beta.1", current = custom))
+        assertFalse(MaaCoreVersion.meetsMinimumRequired("v6.21.2", current = custom))
+        assertFalse(MaaCoreVersion.meetsMinimumRequired("v6.21.1", current = "v6.21.1-beta.1"))
+    }
+
 }
