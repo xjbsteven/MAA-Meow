@@ -37,7 +37,9 @@ object MaaCoreVersion {
         val cleanVersion = version.removePrefix("v").removePrefix("V")
         val parts = cleanVersion.split("-", limit = 2)
         val mainPart = parts[0]
-        val preRelease = parts.getOrNull(1)
+        // Our custom binary is compiled from the stable release, not a prerelease.
+        // Keep the commit suffix in BuildConfig for identity, but do not hide stable-version features.
+        val preRelease = parts.getOrNull(1)?.takeUnless { it.startsWith("custom.") }
 
         val numbers = mainPart.split(".").map { it.toIntOrNull() ?: 0 }
         return VersionInfo(
