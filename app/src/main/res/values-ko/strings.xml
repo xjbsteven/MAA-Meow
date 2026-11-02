@@ -3024,4 +3024,27 @@
     <string name="oper_progress_result_recognition">인식 또는 조작 실패</string>
     <string name="oper_progress_log_detail">%1$s: %2$s%3$s</string>
     <string name="oper_progress_log_summary">오퍼레이터 육성 이번 라운드 결과: 성공 %1$d, 실패 %2$d, 건너뜀 %3$d (마스터리 시작도 성공으로 집계)</string>
+    <string name="panel_infrast_dorm_threshold_station_preset_tip">피아메타 기분 회복이 활성화된 경우, 현재 기분이 이 기준보다 낮은 선택 대상만 후보가 됩니다. 코어는 현재 기분이 가장 낮은 대상을 선택합니다.</string>
+    <string name="panel_switch_theme_only_if_fallback">이번 작업 묶음에서 자동 테마 전환이 발생한 경우에만 실행</string>
+    <string name="panel_switch_theme_only_if_fallback_tip">작업 체인 마지막에 테마 복구 작업으로 사용하세요. 이전 작업에서 홈 화면 테마 인식 실패로 자동 전환이 실제 발생한 경우에만 실행되고, 그렇지 않으면 건너뜁니다.</string>
+    <string name="panel_recruit_minimum_times_title">최소 공개 모집 횟수</string>
+    <string name="panel_recruit_minimum_times_tip">일반적인 희귀도, 태그, 새로고침 등 규칙은 그대로 적용됩니다. 남은 슬롯만으로 최소 횟수를 채울 수 없는 경우에만 일반 3/4성 모집을 확정합니다. 보존 태그, 5/6성 보호 및 3성 모집 허가증 예약이 우선됩니다.</string>
+    <string name="panel_infrast_rotation_style_title">교대 방식</string>
+    <string name="panel_infrast_rotation_style_game">게임 내 대기열 교대</string>
+    <string name="panel_infrast_rotation_style_station_preset">시설 현황 프리셋 교대</string>
+    <string name="panel_infrast_rotation_station_preset_tip">시설 현황 화면에서 선택한 시설의 프리셋 교대 버튼을 누르며 오퍼레이터 선택 화면에 진입하지 않습니다.\n여러 차례 교대하려면 교대마다 별도의 기지 작업을 추가하세요.</string>
+    <string name="panel_infrast_station_preset_layout_title">기지 배치</string>
+    <string name="panel_infrast_station_preset_rooms_title">이번 실행에서 교대할 시설</string>
+    <string name="panel_infrast_station_preset_select_all">모두 선택</string>
+    <string name="panel_infrast_station_preset_clear_all">선택 해제</string>
+    <string name="panel_infrast_station_preset_multi_shift_tip">여러 차례 교대하려면 교대마다 별도의 기지 작업을 추가하세요.</string>
+    <string name="panel_infrast_station_preset_rest">교대 후 오퍼레이터 휴식 배치</string>
+    <string name="panel_infrast_station_preset_use_drones">드론 사용</string>
+    <string name="panel_infrast_station_preset_drone_room">드론을 사용할 시설</string>
+    <string name="panel_infrast_station_preset_drone_index">시설 번호</string>
+    <string name="panel_infrast_station_preset_drone_order">실행 시점</string>
+    <string name="panel_infrast_station_preset_drone_order_pre">교대 전</string>
+    <string name="panel_infrast_station_preset_drone_order_post">교대 후</string>
+    <string name="panel_infrast_reception_receive_clue">응접실 단서 수령</string>
+    <string name="panel_infrast_collect_only">기지 생산물만 모두 수령 (교대 및 드론 사용 안 함)</string>
 </resources>
