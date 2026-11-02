@@ -23,6 +23,8 @@ data class RecruitConfig(
      * 最大招募次数
      */
     val maxRecruitTimes: Int = 4,
+    val minimumRecruitTimesEnabled: Boolean = false,
+    val minimumRecruitTimes: Int = 1,
 
 
     /**
@@ -243,6 +245,11 @@ data class RecruitConfig(
         )
     }
 
+    override fun migrate(): RecruitConfig = copy(
+        maxRecruitTimes = maxRecruitTimes.coerceAtLeast(0),
+        minimumRecruitTimes = minimumRecruitTimes.coerceIn(1, maxRecruitTimes.coerceAtLeast(1)),
+    )
+
     override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
         // 构建 select 和 confirm 列表
         val selectList = buildList {
@@ -262,6 +269,7 @@ data class RecruitConfig(
                 confirmList.forEach { add(JsonPrimitive(it)) }
             })
             put("times", maxRecruitTimes)
+            put("minimum_recruit_times", if (minimumRecruitTimesEnabled && maxRecruitTimes > 0) minimumRecruitTimes.coerceIn(1, maxRecruitTimes) else 0)
             put("set_time", true)
             put("expedite", useExpedited)
             if (useExpedited) {

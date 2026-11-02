@@ -13,6 +13,7 @@ import kotlinx.serialization.json.buildJsonObject
 @Serializable
 data class SwitchThemeConfig(
     val themes: List<String> = emptyList(),
+    val onlyIfFallback: Boolean = false,
 ) : TaskParamProvider {
     override fun toTaskParams(ctx: TaskParamContext): List<MaaTaskParams> {
         val candidates = themes.map(String::trim).filter(String::isNotEmpty)
@@ -22,6 +23,9 @@ data class SwitchThemeConfig(
         }
         val params = buildJsonObject {
             put("themes", JsonArray(candidates.map(::JsonPrimitive)))
+            if (onlyIfFallback) {
+                put("only_if_fallback", JsonPrimitive(true))
+            }
         }
         return listOf(
             MaaTaskParams(
