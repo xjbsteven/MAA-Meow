@@ -41,3 +41,34 @@ Back up current Android task profiles before installing any debug build; a debug
 8. Capture MAA logs and screenshots for any failed case. Do not interpret a successful APK compilation as a gameplay pass.
 
 The legacy branches remain intact. No default-branch merge or Release is authorized.
+
+
+## V909 feature-parity audit (2026-11-04)
+
+The previous port used `codex/recycle-integration-20261015`, but the user's installed
+v909 APK was built from the newer `feat/recycle-station-preset-20261015` branches:
+Android `22c7c8ffaee117d2aa6e7747012e6a35b248237f` and
+Core `af669690a02a4d58304f03cd294eb60e6bdde0cb`.
+A comparison of the 12 Android and 13 Core files changed between these two historical
+branches found the following previously omitted end-user capabilities:
+
+- Station-preset `Recycle` room: appears in selection UI, remains off by default,
+  is included by Select All, and stays selected across layout changes. Core recognizes
+  `Recycle` by ID and by the Chinese OCR label `回收站`.
+- Independent normal infrastructure automatic reward collection toggle:
+  `collectBaseRewards` (legacy default `true`) is serialized as `collect`.
+  Core v6.21.1's `InfrastBegin` automatically collects rewards, so `collect=false`
+  selects `InfrastBeginNoCollect` with only the navigation chain.
+  `collect_only=true` is a separate action and always collects without shifting.
+
+The v909 custom popup click-recording ProcessTask actions and fallback
+`InfrastRecycleReward*` task chain are *intentionally not restored*: official
+Core v6.21.1 already has `InfrastRewardRecycleProduct` and its plugin.
+The old v909 verification/build scripts are likewise replaced by the new CI
+that builds a pinned custom Core, runs Kotlin/C++ tests and lint, and packages an APK.
+The v909 custom version-name suffix is no longer used; Git-based versioning is kept.
+
+The Android tests `StationPresetRecycleTest` and
+`BaseRewardCollectionParamsTest` were also restored from the v909 branch.
+This is a source-level and CI audit, not proof of gameplay on a real device;
+the in-game preset and recycle popup must still be verified on the user's device.

@@ -238,6 +238,9 @@ fun InfrastConfigPanel(
                                 }
                             }
                             item {
+                                BaseRewardsAutoCollectionSection(config, onConfigChange)
+                            }
+                            item {
                                 OriginiumShardAutoReplenishmentSection(config, onConfigChange)
                             }
                             item {
@@ -521,7 +524,7 @@ private fun StationPresetRoomSection(
                     modifier = Modifier.clickable {
                         onConfigChange(
                             config.copy(
-                                presetSelectedRooms = StationPresetRoomList.defaultSelection(config.presetLayout)
+                                presetSelectedRooms = StationPresetRoomList.allSelection(config.presetLayout)
                             )
                         )
                     }
@@ -695,6 +698,7 @@ private fun stationPresetRoomLabel(roomId: String): String = when (roomId) {
     "Control" -> stringResource(R.string.panel_infrast_room_control)
     "Reception" -> stringResource(R.string.panel_infrast_room_reception)
     "Office" -> stringResource(R.string.panel_infrast_room_office)
+    "Recycle" -> stringResource(R.string.panel_infrast_room_recycle)
     else -> when {
         roomId.startsWith("Mfg") -> stringResource(R.string.panel_infrast_room_mfg) + roomId.removePrefix("Mfg")
         roomId.startsWith("Trade") -> stringResource(R.string.panel_infrast_room_trade) + roomId.removePrefix("Trade")
@@ -1550,6 +1554,25 @@ private fun InfrastCollectOnlySection(
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = stringResource(R.string.panel_infrast_collect_only),
+            style = MaterialTheme.typography.bodyMedium,
+            lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+        )
+    }
+}
+
+@Composable
+private fun BaseRewardsAutoCollectionSection(
+    config: InfrastConfig, onConfigChange: (InfrastConfig) -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Checkbox(
+            checked = config.collectBaseRewards,
+            onCheckedChange = { onConfigChange(config.copy(collectBaseRewards = it)) },
+            modifier = Modifier.size(20.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = stringResource(R.string.panel_infrast_auto_collect_rewards),
             style = MaterialTheme.typography.bodyMedium,
             lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
         )

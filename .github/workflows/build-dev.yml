@@ -98,7 +98,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           repository: xjbsteven/MaaAssistantArknights
-          ref: d498de1587b7c3ac646f29f9164c157cefef5889
+          ref: ecda7d9cb5c004763ab251bb6d1506aaf4555b25
           path: custom-core
           fetch-depth: 0
 

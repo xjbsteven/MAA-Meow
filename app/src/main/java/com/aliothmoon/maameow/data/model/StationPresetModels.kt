@@ -62,10 +62,15 @@ object StationPresetRoomList {
             list += StationPresetRoom("Power$index")
         }
         list += StationPresetRoom("Office")
+        list += StationPresetRoom("Recycle")
         return list
     }
 
+    // The recycle station may not have been built; keep it opt-in for older profiles.
     fun defaultSelection(layout: StationPresetLayout): List<String> =
+        rooms(layout).map { it.id }.filterNot { it == "Recycle" }
+
+    fun allSelection(layout: StationPresetLayout): List<String> =
         rooms(layout).map { it.id }
 
     fun pruneSelection(selection: List<String>, layout: StationPresetLayout): List<String> {

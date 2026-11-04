@@ -1072,6 +1072,7 @@
     <string name="panel_infrast_room_reception">Reception Room</string>
     <string name="panel_infrast_room_office">Office</string>
     <string name="panel_infrast_room_recycle">Recycling Station</string>
+    <string name="panel_infrast_auto_collect_rewards">Automatically collect all base rewards</string>
     <string name="panel_infrast_room_dorm">Dormitory</string>
     <string name="panel_infrast_room_processing">Workshop</string>
     <string name="panel_infrast_room_training">Training Room</string>

@@ -1126,6 +1126,7 @@
     <string name="panel_infrast_room_reception">응접실</string>
     <string name="panel_infrast_room_office">사무실</string>
     <string name="panel_infrast_room_recycle">재활용 시설</string>
+    <string name="panel_infrast_auto_collect_rewards">기지 보상 자동 수령</string>
     <string name="panel_infrast_room_dorm">숙소</string>
     <string name="panel_infrast_room_processing">가공소</string>
     <string name="panel_infrast_room_training">훈련실</string>
